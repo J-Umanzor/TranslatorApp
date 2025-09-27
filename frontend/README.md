@@ -1,8 +1,6 @@
-# Next.js & HeroUI Template
+# Translator App
 
-This is a template for creating applications using Next.js 14 (app directory) and HeroUI (v2).
-
-[Try it on CodeSandbox](https://githubbox.com/heroui-inc/heroui/next-app-template)
+A modern translation application built with Next.js 14 and HeroUI v2.
 
 ## Technologies Used
 
@@ -14,19 +12,9 @@ This is a template for creating applications using Next.js 14 (app directory) an
 - [Framer Motion](https://www.framer.com/motion/)
 - [next-themes](https://github.com/pacocoursey/next-themes)
 
-## How to Use
-
-### Use the template with create-next-app
-
-To create a new project based on this template using `create-next-app`, run the following command:
-
-```bash
-npx create-next-app -e https://github.com/heroui-inc/next-app-template
-```
+## Getting Started
 
 ### Install dependencies
-
-You can use one of them `npm`, `yarn`, `pnpm`, `bun`, Example using `npm`:
 
 ```bash
 npm install
@@ -38,15 +26,16 @@ npm install
 npm run dev
 ```
 
-### Setup pnpm (optional)
+Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
 
-If you are using `pnpm`, you need to add the following code to your `.npmrc` file:
+## Project Structure
 
-```bash
-public-hoist-pattern[]=*@heroui/*
-```
+This is a clean Next.js application with HeroUI components, ready for you to build your translation features:
 
-After modifying the `.npmrc` file, you need to run `pnpm install` again to ensure that the dependencies are installed correctly.
+- `app/` - Next.js app directory with pages and layouts
+- `components/` - Reusable UI components
+- `config/` - Application configuration
+- `styles/` - Global styles and Tailwind CSS
 
 ## License
 
