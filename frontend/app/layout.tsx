@@ -47,11 +47,6 @@ export default function RootLayout({
             <main className="container mx-auto max-w-7xl pt-16 px-6 flex-grow">
               {children}
             </main>
-            <footer className="w-full flex items-center justify-center py-3">
-              <p className="text-default-600">
-                © 2024 {siteConfig.name}. All rights reserved.
-              </p>
-            </footer>
           </div>
         </Providers>
       </body>

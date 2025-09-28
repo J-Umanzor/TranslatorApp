@@ -1,8 +1,8 @@
 export type SiteConfig = typeof siteConfig;
 
 export const siteConfig = {
-  name: "Translator App",
-  description: "A modern translation application built with Next.js and HeroUI.",
+  name: "AI PDF Translator",
+  description: "Upload your PDF documents and translate them to any language using advanced AI technology.",
   navItems: [
     {
       label: "Home",
