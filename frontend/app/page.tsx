@@ -69,19 +69,22 @@ export default function Home() {
     setSelectedFile(null);
   };
 
-  const handleTranslate = () => {
-    if (!selectedFile) {
-      alert("Please select a PDF file");
+  const handleTranslate = async () => {
+    // check if both a PDF file and a language have been selected
+    if (!selectedFile || !targetLanguage){
+      alert("Please select a PDF and a target language")
       return;
     }
-    if (!targetLanguage) {
-      alert("Please select a target language");
-      return;
-    }
+    // create for date to send pdf file in post request
+    const fd = new FormData();
+    fd.append("file", selectedFile);
+    // send the pdf file to the backend for text extraction
+    const res = await fetch("http://127.0.0.1:8000/extract", {method: "POST", body: fd});
+    const data = await res.json()
+    if (!res.ok) throw new Error(data.detail || "Server Error");
+    console.log(data);
+  } 
     
-    // TODO: Implement translation logic
-    console.log("Translating file:", selectedFile.name, "to:", targetLanguage);
-  };
 
   return (
     <section className="flex flex-col items-center justify-center gap-8 py-8 md:py-10">
