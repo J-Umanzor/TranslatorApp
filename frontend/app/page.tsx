@@ -75,14 +75,16 @@ export default function Home() {
       alert("Please select a PDF and a target language")
       return;
     }
-    // create for date to send pdf file in post request
+    // create form data to send pdf file and target language in post request
     const fd = new FormData();
     fd.append("file", selectedFile);
-    // send the pdf file to the backend for text extraction
-    const res = await fetch("http://127.0.0.1:8000/extract", {method: "POST", body: fd});
+    fd.append("target_language", targetLanguage);
+    // send the pdf file to the backend for extraction and translation
+    const res = await fetch("http://127.0.0.1:8000/translate", {method: "POST", body: fd});
     const data = await res.json()
     if (!res.ok) throw new Error(data.detail || "Server Error");
     console.log(data);
+    // TODO: Display the translated text in the UI
   } 
     
 
