@@ -13,6 +13,11 @@ source .venv/bin/activate
 
 pip install -r requirements.txt
 
+# Install Tesseract OCR (Required for scanned PDF processing)
+# Windows: Download from https://github.com/UB-Mannheim/tesseract/wiki
+# macOS: brew install tesseract
+# Linux: sudo apt-get install tesseract-ocr
+
 # Run the API
 uvicorn app.main:app --reload --port 8000
 ```
