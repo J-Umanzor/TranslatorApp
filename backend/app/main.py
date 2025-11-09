@@ -3,25 +3,24 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 import fitz
 import pytesseract
-from PIL import Image
-import io
 from azure.ai.translation.text import TextTranslationClient
 from azure.core.credentials import AzureKeyCredential
 from azure.core.exceptions import HttpResponseError
 from dotenv import load_dotenv
 from pathlib import Path
 
+from app.services.extraction import (
+    extract_text,
+    extract_text_from_scanned_pdf,
+    is_scanned,
+)
+from app.services.language_detection import detect_language
+
 # Load environment variables from backend folder
 # Get the backend directory (parent of app directory)
 backend_dir = Path(__file__).parent.parent
 env_path = backend_dir / '.env'
 load_dotenv(dotenv_path=env_path)
-
-# Note: PyTesseract requires Tesseract OCR to be installed separately on your system
-# Windows: Download from https://github.com/UB-Mannheim/tesseract/wiki
-# macOS: brew install tesseract
-# Linux: sudo apt-get install tesseract-ocr
-# After installation, you may need to specify the path if not in PATH:
 
 # Automatically detect Tesseract path on Windows if not in PATH
 import os
@@ -44,9 +43,7 @@ if platform.system() == 'Windows':
                 pytesseract.pytesseract.tesseract_cmd = path
                 break
         else:
-            # If still not found, you can uncomment and set manually:
-            # pytesseract.pytesseract.tesseract_cmd = r'C:\Program Files\Tesseract-OCR\tesseract.exe'
-            pass
+            raise HTTPException(status_code=500, detail="Tesseract OCR is not installed. Please install Tesseract OCR on your system.")
 
 app = FastAPI(title = "AI PDF Translator", description = "Translate PDF documents to any language using advanced AI technology.")
 
@@ -68,6 +65,7 @@ class ExtractResponse(BaseModel):
     pages: int
     kind: str
     text_preview: str
+    language: str
 
 class TranslateRequest(BaseModel):
     target_language: str
@@ -77,7 +75,8 @@ class TranslateResponse(BaseModel):
     kind: str
     original_text: str
     translated_text: str
-    target_language: str
+    target_language: str 
+    source_language: str
 
 MAX_BYTES = 25 * 1024 * 1024 # 25MB
 
@@ -166,76 +165,6 @@ def translate_text_with_azure(text: str, target_language: str) -> str:
             detail=f"Translation failed: {str(e)}"
         )
 
-# check if the document is scanned
-def is_scanned(doc: fitz.Document, sample_pages: int = 3) -> bool:
-    # if the first few pages of the document does not contain text, we can assume it is scanned
-    pages_to_check = min(sample_pages, len(doc))
-    for i in range(pages_to_check):
-        t = doc[i].get_text("text").strip()
-        if t: 
-            return False
-    return True
-
-def extract_text(doc: fitz.Document, max_chars: int = 10000) -> str:
-    parts = []
-    total = 0
-    for page in doc:
-        page_text = page.get_text("text")
-        if not page_text:
-            continue
-        parts.append(page_text)
-        total += len(page_text)
-        if total >= max_chars:
-            break
-    return "".join(parts)
-
-def extract_text_from_scanned_pdf(doc: fitz.Document, max_chars: int = 10000, max_pages: int = 10) -> str:
-    """
-    Extract text from scanned PDF using OCR (PyTesseract).
-    Converts each PDF page to an image and performs OCR on it.
-    """
-    parts = []
-    total = 0
-    pages_to_process = min(len(doc), max_pages)
-    
-    for page_num in range(pages_to_process):
-        page = doc[page_num]
-        
-        # Convert PDF page to image (PNG format)
-        # Using a high DPI for better OCR accuracy (300 DPI is recommended for OCR)
-        mat = fitz.Matrix(2.0, 2.0)  # 2x zoom = ~144 DPI, can increase to 3.0 for better quality
-        pix = page.get_pixmap(matrix=mat)
-        
-        # Convert pixmap to PIL Image
-        img_data = pix.tobytes("png")
-        img = Image.open(io.BytesIO(img_data))
-        
-        # Perform OCR on the image
-        try:
-            # Use pytesseract to extract text
-            # You can specify language here if needed: pytesseract.image_to_string(img, lang='eng')
-            page_text = pytesseract.image_to_string(img)
-            
-            if page_text.strip():
-                parts.append(page_text)
-                total += len(page_text)
-                
-                if total >= max_chars:
-                    break
-        except pytesseract.TesseractNotFoundError:
-            # Tesseract OCR is not installed or not in PATH
-            raise HTTPException(
-                status_code=500,
-                detail="Tesseract OCR is not installed. Please install Tesseract OCR on your system."
-            )
-        except Exception as e:
-            # If OCR fails for a page, skip it and continue
-            print(f"OCR failed for page {page_num + 1}: {e}")
-            continue
-    
-    return "\n\n".join(parts)
-
-
 @app.post("/extract", response_model=ExtractResponse)
 
 async def extract(file: UploadFile = File(...)):
@@ -262,19 +191,21 @@ async def extract(file: UploadFile = File(...)):
                     return ExtractResponse(
                         pages=len(doc),
                         kind="scanned",
-                        text_preview="No text could be extracted from the scanned PDF. Please ensure the PDF contains clear, readable images."
+                        text_preview="No text could be extracted from the scanned PDF. Please ensure the PDF contains clear, readable images.",
+                        language="unknown",
                     )
-                return ExtractResponse(
-                    pages=len(doc),
-                    kind="scanned",
-                    text_preview=text[:1000]
-                )
-            text = extract_text(doc, max_chars=10000)
+            else:
+                text = extract_text(doc, max_chars=10000)
+
+            language = detect_language(text)
             return ExtractResponse(
                 pages=len(doc),
-                kind="digital",
-                text_preview=text[:1000]
+                kind="scanned" if scanned else "digital",
+                text_preview=text[:1000],
+                language=language if language else "unknown",
             )
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=400, detail=f"Failed to process PDF: {e}")
 
@@ -325,6 +256,7 @@ async def translate(
                         detail="No text could be extracted from the PDF."
                     )
             
+            source_language = detect_language(original_text)
             # Translate the extracted text
             translated_text = translate_text_with_azure(original_text, target_language.strip())
             
@@ -333,7 +265,8 @@ async def translate(
                 kind="scanned" if scanned else "digital",
                 original_text=original_text,
                 translated_text=translated_text,
-                target_language=target_language.strip()
+                target_language=target_language.strip(),
+                source_language=source_language if source_language else "unknown",
             )
             
     except HTTPException:
