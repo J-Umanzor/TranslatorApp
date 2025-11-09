@@ -5,16 +5,9 @@ import fitz
 import pytesseract
 from PIL import Image
 import io
-
-# Note: PyTesseract requires Tesseract OCR to be installed separately on your system
-# Windows: Download from https://github.com/UB-Mannheim/tesseract/wiki
-# macOS: brew install tesseract
-# Linux: sudo apt-get install tesseract-ocr
-# After installation, you may need to specify the path if not in PATH:
-
-# Automatically detect Tesseract path on Windows if not in PATH
 import os
 import platform
+from langdetect import detect, DetectorFactory, LangDetectException
 if platform.system() == 'Windows':
     # Common installation paths for Tesseract on Windows
     possible_paths = [
@@ -33,8 +26,7 @@ if platform.system() == 'Windows':
                 pytesseract.pytesseract.tesseract_cmd = path
                 break
         else:
-            # If still not found, you can uncomment and set manually:
-            # pytesseract.pytesseract.tesseract_cmd = r'C:\Program Files\Tesseract-OCR\tesseract.exe'
+            raise HTTPException(status_code=500, detail="Tesseract OCR is not installed. Please install Tesseract OCR on your system.")
             pass
 
 app = FastAPI(title = "AI PDF Translator", description = "Translate PDF documents to any language using advanced AI technology.")
@@ -56,6 +48,7 @@ def health():
 class ExtractResponse(BaseModel):
     pages: int
     kind: str
+    language: str
     text_preview: str
 
 MAX_BYTES = 25 * 1024 * 1024 # 25MB
@@ -130,6 +123,21 @@ def extract_text_from_scanned_pdf(doc: fitz.Document, max_chars: int = 10000, ma
     return "\n\n".join(parts)
 
 
+DetectorFactory.seed = 0
+
+
+def detect_language(text: str) -> str:
+    snippet = text.strip()
+    if not snippet:
+        return "unknown"
+    # langdetect can error on very short inputs; limit to reduce processing time
+    snippet = snippet[:2000]
+    try:
+        return detect(snippet)
+    except LangDetectException:
+        return "unknown"
+
+
 @app.post("/extract", response_model=ExtractResponse)
 
 async def extract(file: UploadFile = File(...)):
@@ -156,17 +164,22 @@ async def extract(file: UploadFile = File(...)):
                     return ExtractResponse(
                         pages=len(doc),
                         kind="scanned",
+                        language="unknown",
                         text_preview="No text could be extracted from the scanned PDF. Please ensure the PDF contains clear, readable images."
                     )
+                language = detect_language(text)
                 return ExtractResponse(
                     pages=len(doc),
                     kind="scanned",
+                    language=language,
                     text_preview=text[:1000]
                 )
             text = extract_text(doc, max_chars=10000)
+            language = detect_language(text)
             return ExtractResponse(
                 pages=len(doc),
                 kind="digital",
+                language=language,
                 text_preview=text[:1000]
             )
     except Exception as e:
