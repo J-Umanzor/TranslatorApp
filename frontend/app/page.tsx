@@ -293,7 +293,7 @@ export default function Home() {
                         {textPreview && (
                           <div>
                             <p className="font-semibold text-default-700">Text preview</p>
-                            <p className="text-xs text-default-500 whitespace-pre-wrap max-h-32 overflow-y-auto border border-default-200 rounded-md p-2 bg-white">
+                            <p className="text-xs text-default-500 whitespace-pre-wrap max-h-72 overflow-y-auto border border-default-200 rounded-md p-2 bg-white">
                               {textPreview}
                             </p>
                           </div>
@@ -352,7 +352,7 @@ export default function Home() {
                 {translationResult.translated_text && (
                   <div>
                     <p className="font-semibold text-default-700">Translated text preview</p>
-                    <p className="text-xs text-default-500 whitespace-pre-wrap max-h-48 overflow-y-auto border border-default-200 rounded-md p-2 bg-white">
+                    <p className="text-xs text-default-500 whitespace-pre-wrap max-h-72 overflow-y-auto border border-default-200 rounded-md p-2 bg-white">
                       {translationResult.translated_text.slice(0, 2000)}
                       {translationResult.translated_text.length > 2000 ? "..." : ""}
                     </p>
