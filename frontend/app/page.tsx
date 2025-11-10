@@ -26,6 +26,16 @@ const languages = [
   { key: "da", label: "Danish" },
 ];
 
+type TranslationResult = {
+  pages: number;
+  kind: string;
+  original_text: string;
+  translated_text: string;
+  target_language: string;
+  source_language: string;
+  translated_pdf_base64: string | null;
+};
+
 export default function Home() {
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [targetLanguage, setTargetLanguage] = useState<string>("");
@@ -35,6 +45,9 @@ export default function Home() {
   const [detectionError, setDetectionError] = useState<string | null>(null);
   const [documentInfo, setDocumentInfo] = useState<{ pages: number; kind: string } | null>(null);
   const [textPreview, setTextPreview] = useState<string>("");
+  const [translationResult, setTranslationResult] = useState<TranslationResult | null>(null);
+  const [isTranslating, setIsTranslating] = useState(false);
+  const [translateError, setTranslateError] = useState<string | null>(null);
 
   const handleFileSelect = (file: File) => {
     if (file.type === "application/pdf") {
@@ -43,6 +56,8 @@ export default function Home() {
       setDetectionError(null);
       setDocumentInfo(null);
       setTextPreview("");
+      setTranslationResult(null);
+      setTranslateError(null);
     } else {
       alert("Please select a PDF file");
     }
@@ -81,6 +96,9 @@ export default function Home() {
     setDocumentInfo(null);
     setTextPreview("");
     setIsDetectingLanguage(false);
+    setTranslationResult(null);
+    setTranslateError(null);
+    setIsTranslating(false);
   };
 
   const handleTranslate = async () => {
@@ -89,16 +107,37 @@ export default function Home() {
       alert("Please select a PDF and a target language")
       return;
     }
+    setIsTranslating(true);
+    setTranslateError(null);
+    setTranslationResult(null);
     // create form data to send pdf file and target language in post request
     const fd = new FormData();
     fd.append("file", selectedFile);
     fd.append("target_language", targetLanguage);
     // send the pdf file to the backend for extraction and translation
-    const res = await fetch("http://127.0.0.1:8000/translate", {method: "POST", body: fd});
-    const data = await res.json()
-    if (!res.ok) throw new Error(data.detail || "Server Error");
-    console.log(data);
-    // TODO: Display the translated text in the UI
+    try {
+      const res = await fetch("http://127.0.0.1:8000/translate", {method: "POST", body: fd});
+      const data = await res.json();
+      if (!res.ok) {
+        throw new Error(data.detail || "Server Error");
+      }
+
+      setTranslationResult({
+        pages: data.pages,
+        kind: data.kind,
+        original_text: data.original_text,
+        translated_text: data.translated_text,
+        target_language: data.target_language,
+        source_language: data.source_language,
+        translated_pdf_base64: data.translated_pdf_base64 ?? null,
+      });
+    } catch (error) {
+      console.error("Failed to translate document", error);
+      const message = error instanceof Error ? error.message : "Failed to translate document";
+      setTranslateError(message);
+    } finally {
+      setIsTranslating(false);
+    }
   } 
 
   const formatLanguage = (code: string | null) => {
@@ -114,6 +153,34 @@ export default function Home() {
       // ignore formatter errors
     }
     return code.toUpperCase();
+  };
+
+  const handleDownloadTranslatedPdf = () => {
+    if (!translationResult?.translated_pdf_base64) {
+      return;
+    }
+
+    try {
+      const byteCharacters = atob(translationResult.translated_pdf_base64);
+      const byteNumbers = new Array(byteCharacters.length);
+      for (let i = 0; i < byteCharacters.length; i += 1) {
+        byteNumbers[i] = byteCharacters.charCodeAt(i);
+      }
+      const byteArray = new Uint8Array(byteNumbers);
+      const blob = new Blob([byteArray], { type: "application/pdf" });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      const baseName = selectedFile?.name?.replace(/\.pdf$/i, "") ?? "translated_document";
+      link.href = url;
+      link.download = `${baseName}_${translationResult.target_language}.pdf`;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      URL.revokeObjectURL(url);
+    } catch (error) {
+      console.error("Failed to prepare translated PDF", error);
+      setTranslateError("Failed to prepare translated PDF for download.");
+    }
   };
 
   useEffect(() => {
@@ -297,10 +364,43 @@ export default function Home() {
               size="lg"
               className="w-full font-semibold"
               onPress={handleTranslate}
-              isDisabled={!selectedFile || !targetLanguage}
+              isDisabled={!selectedFile || !targetLanguage || isTranslating}
+              isLoading={isTranslating}
             >
               Translate PDF
             </Button>
+            {translateError && (
+              <p className="text-danger-500 text-sm">{translateError}</p>
+            )}
+            {translationResult && (
+              <div className="border border-default-200 rounded-lg p-4 bg-default-50 space-y-3">
+                <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
+                  <div>
+                    <p className="font-semibold">
+                      Source language: {formatLanguage(translationResult.source_language)}
+                    </p>
+                    <p className="text-sm text-default-500">
+                      {translationResult.pages} page{translationResult.pages === 1 ? "" : "s"} ·{" "}
+                      {translationResult.kind === "scanned" ? "Scanned PDF" : "Digital PDF"}
+                    </p>
+                  </div>
+                  {translationResult.translated_pdf_base64 && (
+                    <Button color="secondary" onPress={handleDownloadTranslatedPdf}>
+                      Download Translated PDF
+                    </Button>
+                  )}
+                </div>
+                {translationResult.translated_text && (
+                  <div>
+                    <p className="font-semibold text-default-700">Translated text preview</p>
+                    <p className="text-xs text-default-500 whitespace-pre-wrap max-h-48 overflow-y-auto border border-default-200 rounded-md p-2 bg-white">
+                      {translationResult.translated_text.slice(0, 2000)}
+                      {translationResult.translated_text.length > 2000 ? "..." : ""}
+                    </p>
+                  </div>
+                )}
+              </div>
+            )}
           </div>
         </CardBody>
       </Card>
