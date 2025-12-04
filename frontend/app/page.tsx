@@ -9,6 +9,7 @@ import { title, subtitle } from "@/components/primitives";
 import { UploadIcon, FileIcon, TrashIcon } from "@/components/icons";
 
 const languages = [
+  { key: "en", label: "English" },
   { key: "es", label: "Spanish" },
   { key: "fr", label: "French" },
   { key: "de", label: "German" },
@@ -48,6 +49,7 @@ export default function Home() {
   const [translationResult, setTranslationResult] = useState<TranslationResult | null>(null);
   const [isTranslating, setIsTranslating] = useState(false);
   const [translateError, setTranslateError] = useState<string | null>(null);
+  const [translatorProvider, setTranslatorProvider] = useState<string>("azure");
 
   const handleFileSelect = (file: File) => {
     if (file.type === "application/pdf") {
@@ -114,6 +116,7 @@ export default function Home() {
     const fd = new FormData();
     fd.append("file", selectedFile);
     fd.append("target_language", targetLanguage);
+    fd.append("translator_provider", translatorProvider);
     // send the pdf file to the backend for extraction and translation
     try {
       const res = await fetch("http://127.0.0.1:8000/translate", {method: "POST", body: fd});
@@ -356,6 +359,28 @@ export default function Home() {
                   </SelectItem>
                 ))}
               </Select>
+            </div>
+
+            {/* Translator Provider Selection */}
+            <div className="space-y-4">
+              <h3 className="text-lg font-semibold">Translation Provider</h3>
+              <Select
+                placeholder="Choose translation provider"
+                selectedKeys={[translatorProvider]}
+                onSelectionChange={(keys) => {
+                  const selected = Array.from(keys)[0] as string;
+                  setTranslatorProvider(selected);
+                }}
+                className="w-full"
+              >
+                <SelectItem key="azure">Azure Translator (Cloud)</SelectItem>
+                <SelectItem key="libretranslate">LibreTranslate (Local - Free & Unlimited)</SelectItem>
+              </Select>
+              {translatorProvider === "libretranslate" && (
+                <p className="text-sm text-default-500">
+                  Make sure LibreTranslate is running at http://localhost:5000
+                </p>
+              )}
             </div>
 
             {/* Translate Button */}

@@ -24,7 +24,7 @@ Uses "Redact and Replace" logic (same approach as argos-translate-files):
 import fitz
 from typing import List, Optional, Dict, Any
 from pathlib import Path
-from app.translate import translate_text_batch
+from app.services.translation_service import translate_texts
 
 
 def _decimal_to_hex_color(decimal_color: int) -> str:
@@ -44,10 +44,11 @@ class PdfTranslator:
     Based on argos-translate-files implementation.
     """
     
-    def __init__(self, pdf_path: str, output_path: str, target_lang: str):
+    def __init__(self, pdf_path: str, output_path: str, target_lang: str, provider: str = "azure"):
         self.pdf_path = pdf_path
         self.output_path = output_path
         self.target_lang = target_lang
+        self.provider = provider
         self.doc = fitz.open(pdf_path)
         self.pages_data: List[List[List[Any]]] = []
     
@@ -146,7 +147,7 @@ class PdfTranslator:
             
             # Batch translate all texts
             if all_texts:
-                translated_texts = translate_text_batch(all_texts, self.target_lang)
+                translated_texts = translate_texts(all_texts, self.target_lang, provider=self.provider)
                 
                 # Assign translations back to blocks
                 for (page_idx, block_idx), translated_text in zip(text_indices, translated_texts):
@@ -341,7 +342,7 @@ class PdfTranslator:
         self.doc.close()
 
 
-def process_pdf(input_path: str, target_lang: str) -> str:
+def process_pdf(input_path: str, target_lang: str, provider: str = "azure") -> str:
     """
     Process a PDF file and translate text in-place using "Redact and Replace" logic.
     
@@ -369,7 +370,8 @@ def process_pdf(input_path: str, target_lang: str) -> str:
     translator = PdfTranslator(
         pdf_path=input_path,
         output_path=str(output_path),
-        target_lang=target_lang
+        target_lang=target_lang,
+        provider=provider
     )
     
     translator.translate_pdf()
