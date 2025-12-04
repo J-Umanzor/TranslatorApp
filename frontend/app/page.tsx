@@ -1,10 +1,12 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { useRouter } from "next/navigation";
 import { Card, CardBody } from "@heroui/card";
 import { Button } from "@heroui/button";
 import { Select, SelectItem } from "@heroui/select";
 import { Input } from "@heroui/input";
+import { Accordion, AccordionItem } from "@heroui/accordion";
 import { title, subtitle } from "@/components/primitives";
 import { UploadIcon, FileIcon, TrashIcon } from "@/components/icons";
 
@@ -27,17 +29,8 @@ const languages = [
   { key: "da", label: "Danish" },
 ];
 
-type TranslationResult = {
-  pages: number;
-  kind: string;
-  original_text: string;
-  translated_text: string;
-  target_language: string;
-  source_language: string;
-  translated_pdf_base64: string | null;
-};
-
 export default function Home() {
+  const router = useRouter();
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [targetLanguage, setTargetLanguage] = useState<string>("");
   const [isDragOver, setIsDragOver] = useState(false);
@@ -46,20 +39,44 @@ export default function Home() {
   const [detectionError, setDetectionError] = useState<string | null>(null);
   const [documentInfo, setDocumentInfo] = useState<{ pages: number; kind: string } | null>(null);
   const [textPreview, setTextPreview] = useState<string>("");
-  const [translationResult, setTranslationResult] = useState<TranslationResult | null>(null);
   const [isTranslating, setIsTranslating] = useState(false);
   const [translateError, setTranslateError] = useState<string | null>(null);
   const [translatorProvider, setTranslatorProvider] = useState<string>("azure");
+  const [originalPdfDataUrl, setOriginalPdfDataUrl] = useState<string | null>(null);
 
-  const handleFileSelect = (file: File) => {
+  // Helper function to convert File to data URL for PDF display
+  const createPdfDataUrl = (file: File): Promise<string> => {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = (e) => {
+        if (e.target?.result) {
+          resolve(e.target.result as string);
+        } else {
+          reject(new Error("Failed to read file"));
+        }
+      };
+      reader.onerror = () => reject(new Error("Failed to read file"));
+      reader.readAsDataURL(file);
+    });
+  };
+
+  const handleFileSelect = async (file: File) => {
     if (file.type === "application/pdf") {
       setSelectedFile(file);
       setSourceLanguage(null);
       setDetectionError(null);
       setDocumentInfo(null);
       setTextPreview("");
-      setTranslationResult(null);
       setTranslateError(null);
+      
+      // Create data URL for PDF display
+      try {
+        const dataUrl = await createPdfDataUrl(file);
+        setOriginalPdfDataUrl(dataUrl);
+      } catch (error) {
+        console.error("Failed to create PDF data URL", error);
+        setOriginalPdfDataUrl(null);
+      }
     } else {
       alert("Please select a PDF file");
     }
@@ -98,9 +115,9 @@ export default function Home() {
     setDocumentInfo(null);
     setTextPreview("");
     setIsDetectingLanguage(false);
-    setTranslationResult(null);
     setTranslateError(null);
     setIsTranslating(false);
+    setOriginalPdfDataUrl(null);
   };
 
   const handleTranslate = async () => {
@@ -111,7 +128,6 @@ export default function Home() {
     }
     setIsTranslating(true);
     setTranslateError(null);
-    setTranslationResult(null);
     // create form data to send pdf file and target language in post request
     const fd = new FormData();
     fd.append("file", selectedFile);
@@ -125,15 +141,118 @@ export default function Home() {
         throw new Error(data.detail || "Server Error");
       }
 
-      setTranslationResult({
-        pages: data.pages,
-        kind: data.kind,
-        original_text: data.original_text,
-        translated_text: data.translated_text,
-        target_language: data.target_language,
-        source_language: data.source_language,
-        translated_pdf_base64: data.translated_pdf_base64 ?? null,
-      });
+      // Store data and navigate to results page
+      // Use IndexedDB for large PDF data to avoid sessionStorage quota limits
+      const storeDataAndNavigate = () => {
+        return new Promise<void>((resolve, reject) => {
+          // Store text and metadata (small data) in sessionStorage
+          sessionStorage.setItem("originalText", data.original_text);
+          sessionStorage.setItem("translatedText", data.translated_text);
+          sessionStorage.setItem("metadata", JSON.stringify({
+            pages: data.pages,
+            kind: data.kind,
+            source_language: data.source_language,
+            target_language: data.target_language,
+          }));
+          
+          // Store both original and translated PDFs in IndexedDB
+          const dbRequest = indexedDB.open("TranslationDB", 1);
+          
+          dbRequest.onerror = () => {
+            reject(new Error("Failed to open IndexedDB"));
+          };
+          
+          dbRequest.onsuccess = () => {
+            const db = dbRequest.result;
+            const transaction = db.transaction(["pdfs"], "readwrite");
+            const store = transaction.objectStore("pdfs");
+            
+            // Store both PDFs
+            const requests: Promise<void>[] = [];
+            
+            // Store original PDF if available
+            if (originalPdfDataUrl) {
+              // Extract base64 from data URL if it's a data URL
+              let originalBase64: string | null = null;
+              if (originalPdfDataUrl.startsWith("data:")) {
+                const match = originalPdfDataUrl.match(/base64,(.+)$/);
+                if (match && match[1]) {
+                  originalBase64 = match[1];
+                  console.log("Extracted original PDF base64, length:", originalBase64.length);
+                } else {
+                  console.warn("Failed to extract base64 from original PDF data URL");
+                }
+              }
+              
+              if (originalBase64) {
+                const originalRequest = new Promise<void>((resolveOriginal, rejectOriginal) => {
+                  const putRequest = store.put({
+                    id: "originalPdf",
+                    base64: originalBase64,
+                  });
+                  
+                  putRequest.onsuccess = () => {
+                    console.log("Original PDF stored successfully in IndexedDB");
+                    resolveOriginal();
+                  };
+                  putRequest.onerror = (event) => {
+                    console.error("Failed to store original PDF in IndexedDB:", event);
+                    rejectOriginal(new Error("Failed to store original PDF"));
+                  };
+                });
+                requests.push(originalRequest);
+              } else {
+                // If it's not a data URL or extraction failed, try to store it as-is in sessionStorage
+                console.warn("Original PDF is not a data URL or extraction failed, trying sessionStorage");
+                try {
+                  sessionStorage.setItem("originalPdfDataUrl", originalPdfDataUrl);
+                  console.log("Original PDF stored in sessionStorage as fallback");
+                } catch (e) {
+                  console.error("Failed to store original PDF in sessionStorage:", e);
+                }
+              }
+            } else {
+              console.warn("No original PDF data URL available to store");
+            }
+            
+            // Store translated PDF if available
+            if (data.translated_pdf_base64) {
+              const translatedRequest = new Promise<void>((resolveTranslated, rejectTranslated) => {
+                const putRequest = store.put({
+                  id: "translatedPdf",
+                  base64: data.translated_pdf_base64,
+                });
+                
+                putRequest.onsuccess = () => resolveTranslated();
+                putRequest.onerror = () => rejectTranslated(new Error("Failed to store translated PDF"));
+              });
+              requests.push(translatedRequest);
+            }
+            
+            // Wait for all requests to complete
+            Promise.all(requests)
+              .then(() => resolve())
+              .catch((error) => reject(error));
+          };
+          
+          dbRequest.onupgradeneeded = (event) => {
+            const db = (event.target as IDBOpenDBRequest).result;
+            if (!db.objectStoreNames.contains("pdfs")) {
+              db.createObjectStore("pdfs", { keyPath: "id" });
+            }
+          };
+        });
+      };
+      
+      try {
+        await storeDataAndNavigate();
+        // Navigate to results page after data is stored
+        router.push("/results");
+      } catch (error) {
+        console.error("Failed to store translation data", error);
+        setTranslateError("Failed to prepare translation results. The PDF may be too large.");
+        setIsTranslating(false);
+      }
     } catch (error) {
       console.error("Failed to translate document", error);
       const message = error instanceof Error ? error.message : "Failed to translate document";
@@ -156,34 +275,6 @@ export default function Home() {
       // ignore formatter errors
     }
     return code.toUpperCase();
-  };
-
-  const handleDownloadTranslatedPdf = () => {
-    if (!translationResult?.translated_pdf_base64) {
-      return;
-    }
-
-    try {
-      const byteCharacters = atob(translationResult.translated_pdf_base64);
-      const byteNumbers = new Array(byteCharacters.length);
-      for (let i = 0; i < byteCharacters.length; i += 1) {
-        byteNumbers[i] = byteCharacters.charCodeAt(i);
-      }
-      const byteArray = new Uint8Array(byteNumbers);
-      const blob = new Blob([byteArray], { type: "application/pdf" });
-      const url = URL.createObjectURL(blob);
-      const link = document.createElement("a");
-      const baseName = selectedFile?.name?.replace(/\.pdf$/i, "") ?? "translated_document";
-      link.href = url;
-      link.download = `${baseName}_${translationResult.target_language}.pdf`;
-      document.body.appendChild(link);
-      link.click();
-      document.body.removeChild(link);
-      URL.revokeObjectURL(url);
-    } catch (error) {
-      console.error("Failed to prepare translated PDF", error);
-      setTranslateError("Failed to prepare translated PDF for download.");
-    }
   };
 
   useEffect(() => {
@@ -327,12 +418,17 @@ export default function Home() {
                           </p>
                         )}
                         {textPreview && (
-                          <div>
-                            <p className="font-semibold text-default-700">Text preview</p>
-                            <p className="text-xs text-default-500 whitespace-pre-wrap max-h-32 overflow-y-auto border border-default-200 rounded-md p-2 bg-white">
-                              {textPreview}
-                            </p>
-                          </div>
+                          <Accordion>
+                            <AccordionItem
+                              key="text-preview"
+                              aria-label="Text Preview"
+                              title="Text Preview"
+                            >
+                              <p className="text-xs text-default-500 whitespace-pre-wrap max-h-64 overflow-y-auto border border-default-200 rounded-md p-2 bg-white">
+                                {textPreview}
+                              </p>
+                            </AccordionItem>
+                          </Accordion>
                         )}
                       </>
                     )}
@@ -397,38 +493,26 @@ export default function Home() {
             {translateError && (
               <p className="text-danger-500 text-sm">{translateError}</p>
             )}
-            {translationResult && (
-              <div className="border border-default-200 rounded-lg p-4 bg-default-50 space-y-3">
-                <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
-                  <div>
-                    <p className="font-semibold">
-                      Source language: {formatLanguage(translationResult.source_language)}
-                    </p>
-                    <p className="text-sm text-default-500">
-                      {translationResult.pages} page{translationResult.pages === 1 ? "" : "s"} ·{" "}
-                      {translationResult.kind === "scanned" ? "Scanned PDF" : "Digital PDF"}
-                    </p>
-                  </div>
-                  {translationResult.translated_pdf_base64 && (
-                    <Button color="secondary" onPress={handleDownloadTranslatedPdf}>
-                      Download Translated PDF
-                    </Button>
-                  )}
-                </div>
-                {translationResult.translated_text && (
-                  <div>
-                    <p className="font-semibold text-default-700">Translated text preview</p>
-                    <p className="text-xs text-default-500 whitespace-pre-wrap max-h-48 overflow-y-auto border border-default-200 rounded-md p-2 bg-white">
-                      {translationResult.translated_text.slice(0, 2000)}
-                      {translationResult.translated_text.length > 2000 ? "..." : ""}
-                    </p>
-                  </div>
-                )}
-              </div>
-            )}
           </div>
         </CardBody>
       </Card>
+
+      {/* Original PDF Viewer */}
+      {originalPdfDataUrl && (
+        <Card className="w-full max-w-6xl">
+          <CardBody className="p-6">
+            <h3 className="text-lg font-semibold mb-4">Original PDF Preview</h3>
+            <div className="border border-default-200 rounded-lg overflow-hidden shadow-lg">
+              <iframe
+                src={originalPdfDataUrl}
+                className="w-full"
+                style={{ minHeight: "600px", height: "80vh" }}
+                title="Original PDF"
+              />
+            </div>
+          </CardBody>
+        </Card>
+      )}
 
       {/* Features */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-6 w-full max-w-4xl">
