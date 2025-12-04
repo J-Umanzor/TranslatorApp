@@ -19,6 +19,7 @@ from pathlib import Path
 from app.services.extraction import (
     extract_text,
     extract_text_from_scanned_pdf,
+    extract_text_with_boxes_from_scanned_pdf,
     is_scanned,
 )
 from app.services.language_detection import detect_language
@@ -526,6 +527,157 @@ def translate_digital_pdf_with_layout(
 
     return original_full_text, translated_full_text, translated_pdf_base64
 
+
+def translate_scanned_pdf_with_layout(
+    doc: fitz.Document,
+    target_language: str,
+    client: TextTranslationClient,
+) -> tuple[str, str, Optional[str]]:
+    """
+    Translate scanned PDF content using OCR with bounding boxes to preserve layout.
+    
+    For scanned PDFs, we:
+    1. Extract text with bounding boxes using OCR
+    2. Overlay white boxes on detected text areas (since text is part of the image)
+    3. Insert translated text with HTML formatting at the same positions
+    
+    Note: Unlike digital PDFs, we can't remove text objects from scanned PDFs since
+    the text is embedded in the image. We overlay white boxes instead.
+    """
+    # Extract text with bounding boxes using OCR
+    pages_data = extract_text_with_boxes_from_scanned_pdf(doc, max_pages=len(doc))
+    
+    # Collect all texts for translation
+    block_texts: List[str] = []
+    for page_blocks in pages_data:
+        for block in page_blocks:
+            block_texts.append(block['text'])
+    
+    if not block_texts:
+        raise HTTPException(
+            status_code=400,
+            detail="No textual content detected in the scanned PDF."
+        )
+    
+    # Translate all texts in batch
+    translated_blocks = translate_texts_with_azure(
+        block_texts, target_language, client=client
+    )
+    
+    # Create translated document
+    translated_doc = fitz.open()
+    translated_doc.insert_pdf(doc)
+    translated_text_parts: List[str] = []
+    original_text_parts: List[str] = []
+    block_index = 0
+    
+    # Apply translations using overlay approach for scanned PDFs
+    for page_number, page_blocks in enumerate(pages_data):
+        if not page_blocks:
+            continue
+        
+        new_page = translated_doc[page_number]
+        
+        # Separate bold and normal blocks for proper styling
+        normal_blocks = []
+        bold_blocks = []
+        
+        # First pass: prepare all blocks and mark areas for overlay
+        for block in page_blocks:
+            original_text = block['text']
+            translated_text = translated_blocks[block_index] if block_index < len(translated_blocks) else original_text
+            block_index += 1
+            
+            original_text_parts.append(original_text)
+            translated_text_parts.append(translated_text)
+            
+            if not translated_text.strip():
+                continue
+            
+            coords = block['bbox']
+            x0, y0, x1, y1 = coords
+            width = x1 - x0
+            height = y1 - y0
+            
+            # Calculate expansion factor based on text length ratio
+            len_ratio = min(1.1, max(1.01, len(translated_text) / max(1, len(original_text))))
+            
+            # Expand horizontally to accommodate longer text
+            h_expand = (len_ratio - 1) * width
+            x1 = x1 + h_expand
+            
+            # Add some padding around the text area
+            padding = max(2, height * 0.1)
+            x0 = max(0, x0 - padding)
+            y0 = max(0, y0 - padding)
+            x1 = min(new_page.rect.width, x1 + padding)
+            y1 = min(new_page.rect.height, y1 + padding)
+            
+            # Ensure minimum dimensions
+            if y1 - y0 < 10:
+                y_center = (coords[1] + coords[3]) / 2
+                y0 = max(0, y_center - 5)
+                y1 = min(new_page.rect.height, y_center + 5)
+            
+            enlarged_coords = (x0, y0, x1, y1)
+            rect = fitz.Rect(*enlarged_coords)
+            
+            # For scanned PDFs, overlay white rectangle to cover the text area
+            # (since we can't remove text from images)
+            white_rect = fitz.Rect(*enlarged_coords)
+            new_page.draw_rect(white_rect, color=(1, 1, 1), fill=(1, 1, 1))
+            
+            is_bold = block.get('is_bold', False)
+            if is_bold:
+                bold_blocks.append((block, enlarged_coords, translated_text))
+            else:
+                normal_blocks.append((block, enlarged_coords, translated_text))
+        
+        # Insert text blocks with proper styling after overlay
+        for block_data in normal_blocks + bold_blocks:
+            block, enlarged_coords, translated_text = block_data
+            color = block.get('color', '#000000')
+            font_size = block.get('font_size', 12)
+            is_bold = block.get('is_bold', False)
+            
+            rect = fitz.Rect(*enlarged_coords)
+            font_weight = "bold" if is_bold else "normal"
+            
+            # CSS for styling
+            css = f"""
+            * {{
+                color: {color};
+                font-weight: {font_weight};
+                font-size: {font_size}px;
+                line-height: 1.2;
+                word-wrap: break-word;
+                overflow-wrap: break-word;
+                width: 100%;
+                box-sizing: border-box;
+                margin: 0;
+                padding: 0;
+            }}
+            """
+            
+            # HTML content with inline styles
+            html_content = f'<div style="font-size: {font_size}px; color: {color}; font-weight: {font_weight}; line-height: 1.2; word-wrap: break-word;">{translated_text}</div>'
+            
+            try:
+                # Use HTML insertion for better formatting and automatic wrapping
+                new_page.insert_htmlbox(rect, html_content, css=css, rotate=0)
+            except Exception:
+                # Fallback to simple text insertion if HTML insertion fails
+                new_page.insert_text(rect.tl, translated_text, fontsize=font_size)
+    
+    pdf_bytes = translated_doc.tobytes()
+    translated_doc.close()
+    
+    translated_pdf_base64 = base64.b64encode(pdf_bytes).decode("utf-8")
+    original_full_text = "\n\n".join(original_text_parts)
+    translated_full_text = "\n\n".join(translated_text_parts)
+    
+    return original_full_text, translated_full_text, translated_pdf_base64
+
 @app.post("/extract", response_model=ExtractResponse)
 
 async def extract(file: UploadFile = File(...)):
@@ -603,17 +755,34 @@ async def translate(
             
             # Extract text based on document type
             if scanned:
-                # Perform OCR on scanned PDF
-                original_text = extract_text_from_scanned_pdf(doc, max_chars=50000)  # Increased limit for full translation
-                if not original_text.strip():
-                    raise HTTPException(
-                        status_code=400,
-                        detail="No text could be extracted from the scanned PDF. Please ensure the PDF contains clear, readable images."
+                # Translate scanned PDF with format preservation
+                try:
+                    (
+                        original_text,
+                        translated_text,
+                        translated_pdf_base64,
+                    ) = translate_scanned_pdf_with_layout(
+                        doc, target_language_clean, client=client
                     )
-                translated_text = translate_text_with_azure(
-                    original_text, target_language_clean, client=client
-                )
-                translated_pdf_base64 = None
+                    if not original_text.strip():
+                        raise HTTPException(
+                            status_code=400,
+                            detail="No text could be extracted from the scanned PDF. Please ensure the PDF contains clear, readable images."
+                        )
+                except HTTPException:
+                    raise
+                except Exception as e:
+                    # Fallback to text-only translation if format preservation fails
+                    original_text = extract_text_from_scanned_pdf(doc, max_chars=50000)
+                    if not original_text.strip():
+                        raise HTTPException(
+                            status_code=400,
+                            detail="No text could be extracted from the scanned PDF. Please ensure the PDF contains clear, readable images."
+                        )
+                    translated_text = translate_text_with_azure(
+                        original_text, target_language_clean, client=client
+                    )
+                    translated_pdf_base64 = None
             else:
                 # Extract text from digital PDF
                 (
