@@ -23,6 +23,7 @@ from app.services.extraction import (
     is_scanned,
 )
 from app.services.language_detection import detect_language
+from app.services.translation_service import translate_texts, translate_text, get_translation_provider
 from app.pdf_processor import process_pdf
 
 # Load environment variables from backend folder
@@ -66,6 +67,27 @@ app.add_middleware(
 @app.get("/health")
 def health():
     return {"status": "ok"}
+
+
+@app.get("/health/libretranslate")
+def health_libretranslate():
+    """
+    Check if LibreTranslate server is available and healthy.
+    """
+    try:
+        provider = get_translation_provider("libretranslate")
+        if hasattr(provider, '_check_connection'):
+            is_available = provider._check_connection()
+            return {
+                "status": "available" if is_available else "unavailable",
+                "url": provider.base_url if hasattr(provider, 'base_url') else "unknown"
+            }
+        return {"status": "unknown", "message": "Could not check LibreTranslate status"}
+    except Exception as e:
+        return {
+            "status": "error",
+            "message": str(e)
+        }
 
 
 @app.post("/upload")
@@ -287,7 +309,7 @@ def _decimal_to_hex_color(decimal_color: int) -> str:
 def translate_digital_pdf_with_layout(
     doc: fitz.Document,
     target_language: str,
-    client: TextTranslationClient,
+    provider: str = "azure",
 ) -> tuple[str, str, Optional[str]]:
     """
     Translate digital PDF content using redaction approach to preserve layout and
@@ -367,9 +389,9 @@ def translate_digital_pdf_with_layout(
             status_code=400, detail="No textual content detected in the digital PDF."
         )
 
-    # Translate all texts in batch
-    translated_blocks = translate_texts_with_azure(
-        block_texts, target_language, client=client
+    # Translate all texts in batch using translation service
+    translated_blocks = translate_texts(
+        block_texts, target_language, provider=provider
     )
 
     # Create translated document
@@ -531,7 +553,7 @@ def translate_digital_pdf_with_layout(
 def translate_scanned_pdf_with_layout(
     doc: fitz.Document,
     target_language: str,
-    client: TextTranslationClient,
+    provider: str = "azure",
 ) -> tuple[str, str, Optional[str]]:
     """
     Translate scanned PDF content using OCR with bounding boxes to preserve layout.
@@ -559,9 +581,9 @@ def translate_scanned_pdf_with_layout(
             detail="No textual content detected in the scanned PDF."
         )
     
-    # Translate all texts in batch
-    translated_blocks = translate_texts_with_azure(
-        block_texts, target_language, client=client
+    # Translate all texts in batch using translation service
+    translated_blocks = translate_texts(
+        block_texts, target_language, provider=provider
     )
     
     # Create translated document
@@ -726,7 +748,8 @@ async def extract(file: UploadFile = File(...)):
 @app.post("/translate", response_model=TranslateResponse)
 async def translate(
     file: UploadFile = File(...),
-    target_language: str = Form(...)
+    target_language: str = Form(...),
+    translator_provider: str = Form("azure")
 ):
     """
     Extract text from PDF (digital or scanned) and translate it to the target language.
@@ -751,7 +774,7 @@ async def translate(
         with fitz.open(stream=data, filetype="pdf") as doc:
             scanned = is_scanned(doc)
             target_language_clean = target_language.strip()
-            client = get_translator_client()
+            provider = translator_provider.strip().lower() if translator_provider else "azure"
             
             # Extract text based on document type
             if scanned:
@@ -762,7 +785,7 @@ async def translate(
                         translated_text,
                         translated_pdf_base64,
                     ) = translate_scanned_pdf_with_layout(
-                        doc, target_language_clean, client=client
+                        doc, target_language_clean, provider=provider
                     )
                     if not original_text.strip():
                         raise HTTPException(
@@ -779,8 +802,8 @@ async def translate(
                             status_code=400,
                             detail="No text could be extracted from the scanned PDF. Please ensure the PDF contains clear, readable images."
                         )
-                    translated_text = translate_text_with_azure(
-                        original_text, target_language_clean, client=client
+                    translated_text = translate_text(
+                        original_text, target_language_clean, provider=provider
                     )
                     translated_pdf_base64 = None
             else:
@@ -790,7 +813,7 @@ async def translate(
                     translated_text,
                     translated_pdf_base64,
                 ) = translate_digital_pdf_with_layout(
-                    doc, target_language_clean, client=client
+                    doc, target_language_clean, provider=provider
                 )
                 if not original_text.strip():
                     raise HTTPException(
