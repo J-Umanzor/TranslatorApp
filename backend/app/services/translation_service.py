@@ -240,11 +240,11 @@ class LibreTranslateProvider(TranslationProvider):
                 continue
             
             # Check if this is a short fragment that should be grouped
-            # Short = less than 25 chars and doesn't end with sentence punctuation
-            # Also check if it's a single word or very short phrase
-            is_short = (len(text) < 25 and 
-                       not any(text.rstrip().endswith(p) for p in ['.', '!', '?', ':', ';', '\n']) and
-                       len(text.split()) <= 3)  # 3 words or less
+            # Only group very short fragments (1-2 words, < 20 chars) to preserve font sizes
+            # More conservative grouping prevents font size issues
+            is_short = (len(text) < 20 and 
+                       len(text.split()) <= 2 and  # Only 1-2 words
+                       not any(text.rstrip().endswith(p) for p in ['.', '!', '?', ':', ';', '\n']))
             
             if is_short:
                 # Group consecutive short fragments together
@@ -254,16 +254,18 @@ class LibreTranslateProvider(TranslationProvider):
                 i += 1
                 
                 # Collect consecutive short fragments (up to a reasonable limit)
-                max_group_size = 50  # Don't group more than 50 fragments
+                # Limit group size to prevent font size mixing issues
+                max_group_size = 10  # Smaller groups to preserve individual font sizes better
                 while i < len(texts) and len(group_texts) < max_group_size:
                     next_text = str(texts[i]).strip() if texts[i] else ""
                     if not next_text:
                         # Empty text - stop grouping
                         break
                     
-                    next_is_short = (len(next_text) < 25 and 
-                                    not any(next_text.rstrip().endswith(p) for p in ['.', '!', '?', ':', ';', '\n']) and
-                                    len(next_text.split()) <= 3)
+                    # More conservative: only group very short fragments (1-2 words)
+                    next_is_short = (len(next_text) < 20 and 
+                                    len(next_text.split()) <= 2 and
+                                    not any(next_text.rstrip().endswith(p) for p in ['.', '!', '?', ':', ';', '\n']))
                     
                     if next_is_short:
                         group_texts.append(next_text)
@@ -286,18 +288,20 @@ class LibreTranslateProvider(TranslationProvider):
                     
                     if total_original_words > 0 and len(translated_words) > 0:
                         # Distribute words proportionally based on original word counts
+                        # This ensures each fragment gets appropriate text while preserving font sizes
                         word_idx = 0
                         for idx, orig_idx in enumerate(group_indices):
                             if word_idx >= len(translated_words):
-                                # No more words to distribute
+                                # No more words to distribute - keep original to preserve font size
                                 translated[orig_idx] = str(texts[orig_idx])
                                 continue
                             
                             # Calculate proportion of words this fragment should get
+                            # Use ceiling to ensure small fragments get at least some words
                             proportion = group_lengths[idx] / total_original_words
-                            num_words = max(1, int(len(translated_words) * proportion))
+                            num_words = max(1, int(len(translated_words) * proportion + 0.5))  # Round to nearest
                             
-                            # For the last fragment, give it all remaining words
+                            # For the last fragment, give it all remaining words to avoid losing any
                             if idx == len(group_indices) - 1:
                                 num_words = len(translated_words) - word_idx
                             
@@ -305,12 +309,12 @@ class LibreTranslateProvider(TranslationProvider):
                             remaining_words = len(translated_words) - word_idx
                             num_words = min(num_words, remaining_words)
                             
-                            if num_words > 0:
+                            if num_words > 0 and word_idx < len(translated_words):
                                 fragment_words = translated_words[word_idx:word_idx + num_words]
                                 translated[orig_idx] = " ".join(fragment_words)
                                 word_idx += num_words
                             else:
-                                # Fallback: use original if distribution fails
+                                # Fallback: keep original to preserve font size
                                 translated[orig_idx] = str(texts[orig_idx])
                     else:
                         # If translation is empty or no words, keep originals
