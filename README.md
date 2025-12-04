@@ -60,7 +60,7 @@ docker run -ti --rm -p 5000:5000 libretranslate/libretranslate
 ```bash
 cd backend
 source .venv/bin/activate  # or
- .venv\Scripts\Activate.ps1 on Windows
+.venv\Scripts\Activate.ps1
 uvicorn app.main:app --reload --port 8000
 ```
 
