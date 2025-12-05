@@ -364,7 +364,7 @@ export default function Home() {
                     Drag and drop your PDF file here, or click to browse
                   </p>
                   <p className="text-sm text-default-400">
-                    Supported format: PDF (max 10MB)
+                    Supported format: PDF (max 50MB)
                   </p>
                   <Input
                     type="file"

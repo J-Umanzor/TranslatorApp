@@ -8,6 +8,10 @@ export const siteConfig = {
       label: "Home",
       href: "/",
     },
+    {
+      label: "Chat",
+      href: "/chat",
+    },
   ],
   navMenuItems: [],
   links: {

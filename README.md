@@ -1,6 +1,6 @@
 # AI PDF Translator
 
-Translate PDF documents while preserving formatting. Supports both digital and scanned PDFs with two translation providers: Azure Translator (cloud) and LibreTranslate (self-hosted, free & unlimited).
+Translate PDF documents while preserving formatting. Supports both digital and scanned PDFs with two translation providers: Azure Translator (cloud) and LibreTranslate (self-hosted, free & unlimited). Includes an AI chatbot powered by Ollama for interactive document Q&A.
 
 ## Prerequisites
 
@@ -10,6 +10,9 @@ Translate PDF documents while preserving formatting. Supports both digital and s
   - Windows: Download from [UB-Mannheim/tesseract](https://github.com/UB-Mannheim/tesseract/wiki)
   - macOS: `brew install tesseract`
   - Linux: `sudo apt-get install tesseract-ocr`
+- **Ollama** (for chatbot feature)
+  - Download from [ollama.ai](https://ollama.ai)
+  - Recommended model: `ollama pull llama3.1:8b`
 - **Docker** (optional, only for LibreTranslate)
 
 ## Quick Start
@@ -39,6 +42,8 @@ AZURE_TRANSLATOR_KEY=your_key_here
 AZURE_TRANSLATOR_ENDPOINT=https://api.cognitive.microsofttranslator.com
 AZURE_TRANSLATOR_REGION=your_region_here
 LIBRETRANSLATE_URL=http://localhost:5000
+OLLAMA_BASE_URL=http://localhost:11434
+DEFAULT_LLM_MODEL=llama3.1:8b
 ```
 
 ### 2. Frontend Setup
@@ -75,6 +80,13 @@ npm run dev
 docker run -ti --rm -p 5000:5000 libretranslate/libretranslate
 ```
 
+**Terminal 4 - Ollama (for chatbot):**
+```bash
+# Make sure Ollama is running (usually runs as a service)
+# Download recommended model:
+ollama pull llama3.1:8b
+```
+
 Open `http://localhost:3000` in your browser.
 
 
@@ -85,3 +97,19 @@ Open `http://localhost:3000` in your browser.
 3. Copy the API key, endpoint, and region to your `.env` file
 
 **Note**: Azure credentials are only needed if using Azure Translator. LibreTranslate is free and unlimited when self-hosted.
+
+## Chatbot Feature
+
+The application includes an AI chatbot powered by Ollama that allows you to:
+- Ask questions about your PDF documents
+- Get summaries and extract information
+- Chat in the translated PDF's language
+- Use full PDF context (text + images)
+
+**Setup:**
+1. Install [Ollama](https://ollama.ai)
+2. Pull the recommended model: `ollama pull llama3.1:8b`
+3. Ensure Ollama is running (usually runs as a background service)
+4. Access the chatbot from the results page or via the "Chat" link in the navbar
+
+The chatbot automatically uses visual LLMs to analyze both text content and page images for comprehensive document understanding.
