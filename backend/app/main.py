@@ -36,11 +36,19 @@ from app.models import (
     ChatMessage,
 )
 
-# Load environment variables from backend folder
+# Load environment variables - check both project root and backend folder
 # Get the backend directory (parent of app directory)
 backend_dir = Path(__file__).parent.parent
-env_path = backend_dir / '.env'
-load_dotenv(dotenv_path=env_path)
+project_root = backend_dir.parent
+# Try project root first (for Docker), then backend folder (for local dev)
+env_paths = [project_root / '.env', backend_dir / '.env']
+for env_path in env_paths:
+    if env_path.exists():
+        load_dotenv(dotenv_path=env_path)
+        break
+else:
+    # If neither exists, try loading from default locations (current directory, etc.)
+    load_dotenv()
 
 # Automatically detect Tesseract path on Windows if not in PATH
 if platform.system() == 'Windows':
@@ -65,10 +73,11 @@ if platform.system() == 'Windows':
 
 app = FastAPI(title = "AI PDF Translator", description = "Translate PDF documents to any language using advanced AI technology.")
 
-# we will allow local dev from next.js at localhost:3000
+# CORS configuration - allow requests from frontend (both local dev and Docker)
+cors_origins = os.getenv("CORS_ORIGINS", "http://localhost:3000").split(",")
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:3000"],
+    allow_origins=cors_origins,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],

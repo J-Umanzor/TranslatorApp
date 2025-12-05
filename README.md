@@ -2,101 +2,62 @@
 
 Translate PDF documents while preserving formatting. Supports both digital and scanned PDFs with two translation providers: Azure Translator (cloud) and LibreTranslate (self-hosted, free & unlimited). Includes an AI chatbot powered by Ollama for interactive document Q&A.
 
+## 🚀 Quick Start
+
+1. **Install Docker Desktop** (if you don't have it): [Download Docker Desktop](https://www.docker.com/products/docker-desktop/)
+
+2. **Clone this repository**:
+   ```bash
+   git clone <your-repo-url>
+   cd TranslatorApp
+   ```
+
+3. **Start the application**:
+   ```bash
+   docker-compose up -d
+   ```
+
+4. **Open your browser** and go to: `http://localhost:3000`
+
+That's it! The application is now running.
+
 ## Prerequisites
 
-- **Python 3.8+**
-- **Node.js 18+** and npm
-- **Tesseract OCR** (for scanned PDFs)
-  - Windows: Download from [UB-Mannheim/tesseract](https://github.com/UB-Mannheim/tesseract/wiki)
-  - macOS: `brew install tesseract`
-  - Linux: `sudo apt-get install tesseract-ocr`
-- **Ollama** (for chatbot feature)
-  - Download from [ollama.ai](https://ollama.ai)
-  - Recommended model: `ollama pull llama3.1:8b`
-- **Docker** (optional, only for LibreTranslate)
+- **Docker Desktop** - [Download here](https://www.docker.com/products/docker-desktop/)
+- **Ollama** (optional, for chatbot feature) - [Download here](https://ollama.ai)
+  - After installing, run: `ollama pull llama3.1:8b`
 
-## Quick Start
+## Optional Configuration
 
-### 1. Backend Setup
+### Azure Translator (Optional)
 
-```bash
-cd backend
+If you want to use Azure Translator instead of LibreTranslate, create a `.env` file in either:
+- **Project root** (recommended for Docker): `TranslatorApp/.env`
+- **Backend folder** (for local development): `TranslatorApp/backend/.env`
 
-# Create and activate virtual environment
-python -m venv .venv
-# macOS/Linux:
-source .venv/bin/activate
-# Windows:
-.venv\Scripts\Activate.ps1
+The application will automatically check both locations.
 
-# Install dependencies
-pip install -r requirements.txt
-
-# Create .env file with your Azure Translator credentials
-# (Only needed if using Azure Translator)
-```
-
-Create `backend/.env`:
 ```env
 AZURE_TRANSLATOR_KEY=your_key_here
 AZURE_TRANSLATOR_ENDPOINT=https://api.cognitive.microsofttranslator.com
 AZURE_TRANSLATOR_REGION=your_region_here
-LIBRETRANSLATE_URL=http://localhost:5000
-OLLAMA_BASE_URL=http://localhost:11434
+OLLAMA_BASE_URL=http://host.docker.internal:11434
 DEFAULT_LLM_MODEL=llama3.1:8b
 ```
 
-### 2. Frontend Setup
-
-```bash
-cd frontend
-npm install
-```
-
-### 3. Start LibreTranslate (Optional - for free unlimited translations)
-
-```bash
-docker run -ti --rm -p 5000:5000 libretranslate/libretranslate
-```
-
-### 4. Run the Application
-
-**Terminal 1 - Backend:**
-```bash
-cd backend
-source .venv/bin/activate  # or
-.venv\Scripts\Activate.ps1
-uvicorn app.main:app --reload --port 8000
-```
-
-**Terminal 2 - Frontend:**
-```bash
-cd frontend
-npm run dev
-```
-
-**Terminal 3 - LibreTranslate (if using):**
-```bash
-docker run -ti --rm -p 5000:5000 libretranslate/libretranslate
-```
-
-**Terminal 4 - Ollama (for chatbot):**
-```bash
-# Make sure Ollama is running (usually runs as a service)
-# Download recommended model:
-ollama pull llama3.1:8b
-```
-
-Open `http://localhost:3000` in your browser.
-
-
-## Getting Azure Translator Credentials
-
+To get Azure Translator credentials:
 1. Go to [Azure Portal](https://portal.azure.com/)
 2. Create a "Translator" resource
 3. Copy the API key, endpoint, and region to your `.env` file
 
-**Note**: Azure credentials are only needed if using Azure Translator. LibreTranslate is free and unlimited when self-hosted.
+**Note**: Azure credentials are optional. LibreTranslate (included with Docker) is free and unlimited.
+
+## Useful Commands
+
+- **Stop the application**: `docker-compose down`
+- **View logs**: `docker-compose logs -f`
+- **Restart**: `docker-compose restart`
+- **Rebuild** (after code changes): `docker-compose up --build`
 
 ## Chatbot Feature
 

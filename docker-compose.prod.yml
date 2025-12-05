@@ -1,0 +1,68 @@
+version: '3.8'
+
+services:
+  backend:
+    image: ${BACKEND_IMAGE:-translatorapp/backend:latest}
+    container_name: translator-backend
+    ports:
+      - "8000:8000"
+    environment:
+      - AZURE_TRANSLATOR_KEY=${AZURE_TRANSLATOR_KEY:-}
+      - AZURE_TRANSLATOR_ENDPOINT=${AZURE_TRANSLATOR_ENDPOINT:-}
+      - AZURE_TRANSLATOR_REGION=${AZURE_TRANSLATOR_REGION:-}
+      - LIBRETRANSLATE_URL=http://libretranslate:5000
+      - OLLAMA_BASE_URL=${OLLAMA_BASE_URL:-http://host.docker.internal:11434}
+      - DEFAULT_LLM_MODEL=${DEFAULT_LLM_MODEL:-llama3.1:8b}
+      - CORS_ORIGINS=http://localhost:3000,http://127.0.0.1:3000
+    depends_on:
+      - libretranslate
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    networks:
+      - translator-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+  frontend:
+    image: ${FRONTEND_IMAGE:-translatorapp/frontend:latest}
+    container_name: translator-frontend
+    ports:
+      - "3000:3000"
+    environment:
+      - NEXT_PUBLIC_API_URL=http://localhost:8000
+    depends_on:
+      backend:
+        condition: service_healthy
+    networks:
+      - translator-network
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:3000"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+
+  libretranslate:
+    image: libretranslate/libretranslate:latest
+    container_name: translator-libretranslate
+    ports:
+      - "5000:5000"
+    environment:
+      - LT_LOAD_ONLY=en,es,fr,de,it,pt,ru,zh,ja,ko,ar,hi
+    networks:
+      - translator-network
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:5000/languages"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+
+networks:
+  translator-network:
+    driver: bridge
+

@@ -10,10 +10,18 @@ from azure.core.exceptions import HttpResponseError
 from dotenv import load_dotenv
 from pathlib import Path
 
-# Load environment variables
-backend_dir = Path(__file__).parent.parent
-env_path = backend_dir / '.env'
-load_dotenv(dotenv_path=env_path)
+# Load environment variables - check both project root and backend folder
+backend_dir = Path(__file__).parent.parent  # backend/
+project_root = backend_dir.parent  # project root
+# Try project root first (for Docker), then backend folder (for local dev)
+env_paths = [project_root / '.env', backend_dir / '.env']
+for env_path in env_paths:
+    if env_path.exists():
+        load_dotenv(dotenv_path=env_path)
+        break
+else:
+    # If neither exists, try loading from default locations (current directory, etc.)
+    load_dotenv()
 
 # Azure Translator configuration
 AZURE_TRANSLATOR_KEY = os.getenv("AZURE_TRANSLATOR_KEY")

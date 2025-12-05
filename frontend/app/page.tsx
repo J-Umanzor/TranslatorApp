@@ -10,6 +10,8 @@ import { Accordion, AccordionItem } from "@heroui/accordion";
 import { title, subtitle } from "@/components/primitives";
 import { UploadIcon, FileIcon, TrashIcon } from "@/components/icons";
 
+const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || "http://127.0.0.1:8000";
+
 const languages = [
   { key: "en", label: "English" },
   { key: "es", label: "Spanish" },
@@ -135,7 +137,7 @@ export default function Home() {
     fd.append("translator_provider", translatorProvider);
     // send the pdf file to the backend for extraction and translation
     try {
-      const res = await fetch("http://127.0.0.1:8000/translate", {method: "POST", body: fd});
+      const res = await fetch(`${API_BASE_URL}/translate`, {method: "POST", body: fd});
       const data = await res.json();
       if (!res.ok) {
         throw new Error(data.detail || "Server Error");
@@ -292,7 +294,7 @@ export default function Home() {
       fd.append("file", selectedFile);
 
       try {
-        const res = await fetch("http://127.0.0.1:8000/extract", {
+        const res = await fetch(`${API_BASE_URL}/extract`, {
           method: "POST",
           body: fd,
         });
