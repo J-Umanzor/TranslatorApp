@@ -274,7 +274,7 @@ export default function Chat({
                 isDisabled={isLoading || isInitializing}
               >
                 {availableModels.map((model) => (
-                  <SelectItem key={model.name} value={model.name}>
+                  <SelectItem key={model.model}>
                     {model.name}
                   </SelectItem>
                 ))}
