@@ -2,7 +2,7 @@ import os
 import platform
 import pytesseract
 
-MAX_BYTES = 25 * 1024 * 1024  # 25MB
+MAX_BYTES = 50 * 1024 * 1024  # 50MB
 
 WINDOWS_TESSERACT_PATHS = [
     r"C:\Program Files\Tesseract-OCR\tesseract.exe",

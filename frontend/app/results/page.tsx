@@ -6,6 +6,7 @@ import { Card, CardBody } from "@heroui/card";
 import { Button } from "@heroui/button";
 import { Accordion, AccordionItem } from "@heroui/accordion";
 import { title } from "@/components/primitives";
+import Chat from "@/components/chat";
 
 type Metadata = {
   pages: number;
@@ -22,6 +23,9 @@ export default function ResultsPage() {
   const [metadata, setMetadata] = useState<Metadata | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [translatedPdfBase64, setTranslatedPdfBase64] = useState<string | null>(null);
+  const [originalPdfBase64, setOriginalPdfBase64] = useState<string | null>(null);
+  const [chatError, setChatError] = useState<string | null>(null);
 
   useEffect(() => {
     // Retrieve data from sessionStorage and IndexedDB
@@ -100,6 +104,9 @@ export default function ResultsPage() {
                 return;
               }
               
+              // Store base64 for chat
+              setTranslatedPdfBase64(base64Data);
+              
               // Convert base64 to blob and create blob URL (more reliable than data URLs in iframes)
               const byteCharacters = atob(base64Data);
               const byteNumbers = new Array(byteCharacters.length);
@@ -128,6 +135,14 @@ export default function ResultsPage() {
             console.warn("Translated PDF not found in IndexedDB");
             setError("Translated PDF not found. Please translate a document first.");
             setIsLoading(false);
+          }
+        };
+        
+        // Load original PDF for chat
+        const originalRequest = store.get("originalPdf");
+        originalRequest.onsuccess = () => {
+          if (originalRequest.result && originalRequest.result.base64) {
+            setOriginalPdfBase64(originalRequest.result.base64);
           }
         };
         
@@ -366,6 +381,37 @@ export default function ResultsPage() {
                   </p>
                 </AccordionItem>
               ) : null}
+            </Accordion>
+          </CardBody>
+        </Card>
+      )}
+
+      {/* Chat Section */}
+      {(translatedPdfBase64 || originalPdfBase64) && (
+        <Card className="w-full max-w-[98vw]">
+          <CardBody className="p-6">
+            <Accordion defaultSelectedKeys={["chat"]}>
+              <AccordionItem
+                key="chat"
+                aria-label="Chat with PDF"
+                title="Chat with PDF (AI Assistant)"
+              >
+                {chatError && (
+                  <div className="mb-4 p-3 bg-danger-50 border border-danger-200 rounded-lg">
+                    <p className="text-sm text-danger-600">{chatError}</p>
+                    <p className="text-xs text-danger-500 mt-1">
+                      Make sure Ollama is running at http://localhost:11434
+                    </p>
+                  </div>
+                )}
+                <Chat
+                  pdfBase64={translatedPdfBase64 || originalPdfBase64 || ""}
+                  contextType="translated"
+                  targetLanguage={metadata?.target_language}
+                  sourceLanguage={metadata?.source_language}
+                  onError={(error) => setChatError(error)}
+                />
+              </AccordionItem>
             </Accordion>
           </CardBody>
         </Card>

@@ -25,6 +25,16 @@ from app.services.extraction import (
 from app.services.language_detection import detect_language
 from app.services.translation_service import translate_texts, translate_text, get_translation_provider
 from app.pdf_processor import process_pdf
+from app.services.chat_service import ChatService
+from app.services.pdf_context_service import PDFContextService
+from app.models import (
+    ChatStartRequest,
+    ChatMessageRequest,
+    ChatResponse,
+    ChatStartResponse,
+    ChatSession,
+    ChatMessage,
+)
 
 # Load environment variables from backend folder
 # Get the backend directory (parent of app directory)
@@ -113,7 +123,7 @@ async def upload_and_translate(
     if len(data) == 0:
         raise HTTPException(status_code=400, detail="File is empty")
     if len(data) > MAX_BYTES:
-        raise HTTPException(status_code=400, detail="File is too large (max 25MB)")
+        raise HTTPException(status_code=400, detail="File is too large (max 50MB)")
     
     # Validate target language
     if not target_language or not target_language.strip():
@@ -168,7 +178,7 @@ class TranslateResponse(BaseModel):
     source_language: str
     translated_pdf_base64: Optional[str] = None
 
-MAX_BYTES = 25 * 1024 * 1024 # 25MB
+MAX_BYTES = 50 * 1024 * 1024 # 50MB
 
 # Azure Translator configuration
 AZURE_TRANSLATOR_KEY = os.getenv("AZURE_TRANSLATOR_KEY")
@@ -713,7 +723,7 @@ async def extract(file: UploadFile = File(...)):
         raise HTTPException(status_code=400, detail="File is empty")
     #check if file is too large 
     if len(data) > MAX_BYTES:
-        raise HTTPException(status_code=400, detail="File is too large max (25MB)")
+        raise HTTPException(status_code=400, detail="File is too large max (50MB)")
 
     try:
         with fitz.open(stream=data, filetype="pdf") as doc:
@@ -764,7 +774,7 @@ async def translate(
         raise HTTPException(status_code=400, detail="File is empty")
     # Check if file is too large
     if len(data) > MAX_BYTES:
-        raise HTTPException(status_code=400, detail="File is too large max (25MB)")
+        raise HTTPException(status_code=400, detail="File is too large max (50MB)")
 
     # Validate target language
     if not target_language or not target_language.strip():
@@ -837,4 +847,343 @@ async def translate(
         # Re-raise HTTP exceptions
         raise
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Failed to process PDF: {str(e)}") 
+        raise HTTPException(status_code=500, detail=f"Failed to process PDF: {str(e)}")
+
+
+# Chat endpoints
+# In-memory session storage (in production, use Redis or database)
+chat_sessions: dict[str, ChatSession] = {}
+# Store PDF data separately (not in Pydantic model)
+pdf_data_storage: dict[str, bytes] = {}
+chat_service = ChatService()
+pdf_context_service = PDFContextService()
+
+
+@app.get("/chat/models")
+async def get_chat_models():
+    """Get list of available Ollama models."""
+    try:
+        models = chat_service.get_available_models()
+        return {"models": models}
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to get models: {str(e)}"
+        )
+
+
+@app.post("/chat/start", response_model=ChatStartResponse)
+async def start_chat(
+    file: Optional[UploadFile] = File(None),
+    pdf_base64: Optional[str] = Form(None),
+    context_type: str = Form("translated"),
+    model: Optional[str] = Form(None),
+    use_visual: bool = Form(False),
+    target_language: Optional[str] = Form(None),
+    source_language: Optional[str] = Form(None),
+    use_source_language: bool = Form(False)
+):
+    """
+    Initialize a new chat session with PDF context.
+    
+    Args:
+        file: PDF file upload (optional if pdf_base64 provided)
+        pdf_base64: Base64-encoded PDF (optional if file provided)
+        context_type: "original" or "translated"
+        model: Model name (optional, will use recommended if not provided)
+        use_visual: Whether to use visual LLM
+        
+    Returns:
+        Chat session information
+    """
+    import uuid
+    from datetime import datetime
+    
+    # Get PDF data
+    pdf_data = None
+    if file:
+        pdf_data = await file.read()
+    elif pdf_base64:
+        # For large base64 strings, we need to handle them carefully
+        # If the base64 string is too large for form field, it will be truncated
+        # So we'll read it in chunks if needed, or recommend file upload
+        try:
+            # Check if base64 string is complete (ends with padding or valid base64 chars)
+            if len(pdf_base64) > 1024 * 1024:  # If larger than 1MB as base64 string
+                raise HTTPException(
+                    status_code=400,
+                    detail="Base64 string too large for form field. Please use file upload instead for files larger than ~750KB."
+                )
+            pdf_data = base64.b64decode(pdf_base64)
+        except HTTPException:
+            raise
+        except Exception as e:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Invalid base64 PDF data: {str(e)}. For large files, please use file upload instead."
+            )
+    else:
+        raise HTTPException(
+            status_code=400,
+            detail="Either file or pdf_base64 must be provided"
+        )
+    
+    # Validate PDF
+    if not pdf_data or len(pdf_data) == 0:
+        raise HTTPException(status_code=400, detail="PDF data is empty")
+    
+    # Get PDF info
+    try:
+        pdf_info = pdf_context_service.get_pdf_info(pdf_data)
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to process PDF: {str(e)}"
+        )
+    
+    # Always use visual model to support both text and images
+    # This allows us to provide full context (text + images) for all PDFs
+    use_visual = True
+    recommended_model = chat_service.get_recommended_model(is_visual=True)
+    
+    # Use provided model or recommended
+    selected_model = model or recommended_model
+    
+    # Detect target and source languages if not provided
+    detected_target_language = target_language
+    if not detected_target_language:
+        try:
+            # Try to detect from PDF text
+            pdf_text = pdf_context_service.get_pdf_text(pdf_data, max_chars=2000)
+            from app.services.language_detection import detect_language
+            detected_target_language = detect_language(pdf_text)
+            if detected_target_language == "unknown":
+                detected_target_language = "en"  # Default to English
+        except:
+            detected_target_language = "en"  # Default to English
+    
+    detected_source_language = source_language or "en"  # Default to English if not provided
+    
+    # Determine chat language based on toggle
+    # If use_source_language is True, chat in source language, otherwise use target language (default)
+    chat_language = detected_source_language if use_source_language else detected_target_language
+    
+    # Create session
+    session_id = str(uuid.uuid4())
+    session = ChatSession(
+        session_id=session_id,
+        context_type=context_type,
+        model=selected_model,
+        use_visual=use_visual,
+        messages=[],
+        pdf_info=pdf_info,
+        target_language=detected_target_language,
+        source_language=detected_source_language,
+        chat_language=chat_language
+    )
+    
+    # Create friendly greeting message
+    # Generate greeting in chat language
+    greeting_texts = {
+        "en": f"Hello! I'm here to help you with your PDF document. This document has {pdf_info['pages']} page{'s' if pdf_info['pages'] != 1 else ''} and appears to be a {pdf_info['kind']} PDF. What would you like to know about it?",
+        "es": f"¡Hola! Estoy aquí para ayudarte con tu documento PDF. Este documento tiene {pdf_info['pages']} página{'s' if pdf_info['pages'] != 1 else ''} y parece ser un PDF {pdf_info['kind']}. ¿Qué te gustaría saber sobre él?",
+        "fr": f"Bonjour! Je suis là pour vous aider avec votre document PDF. Ce document a {pdf_info['pages']} page{'s' if pdf_info['pages'] != 1 else ''} et semble être un PDF {pdf_info['kind']}. Que souhaitez-vous savoir à ce sujet?",
+        "de": f"Hallo! Ich bin hier, um Ihnen bei Ihrem PDF-Dokument zu helfen. Dieses Dokument hat {pdf_info['pages']} Seite{'n' if pdf_info['pages'] != 1 else ''} und scheint ein {pdf_info['kind']} PDF zu sein. Was möchten Sie darüber wissen?",
+    }
+    
+    # Get greeting in chat language or default to English
+    greeting = greeting_texts.get(chat_language, greeting_texts["en"])
+    
+    # Add greeting as first message
+    greeting_message = ChatMessage(
+        role="assistant",
+        content=greeting,
+        timestamp=datetime.now().isoformat()
+    )
+    session.messages.append(greeting_message)
+    
+    # Store PDF data separately (for later use)
+    # In production, store in Redis or database
+    pdf_data_storage[session_id] = pdf_data
+    chat_sessions[session_id] = session
+    
+    # Get available models
+    try:
+        available_models = chat_service.get_available_models()
+    except:
+        available_models = []
+    
+    return ChatStartResponse(
+        session_id=session_id,
+        available_models=available_models,
+        recommended_model=recommended_model,
+        pdf_info=pdf_info
+    )
+
+
+@app.post("/chat/message", response_model=ChatResponse)
+async def send_chat_message(request: ChatMessageRequest):
+    """
+    Send a message in a chat session.
+    
+    Args:
+        request: Chat message request
+        
+    Returns:
+        Chat response
+    """
+    from datetime import datetime
+    
+    # Get session
+    session = chat_sessions.get(request.session_id)
+    if not session:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Chat session {request.session_id} not found"
+        )
+    
+    # Get PDF data from storage
+    pdf_data = pdf_data_storage.get(request.session_id)
+    if not pdf_data:
+        raise HTTPException(
+            status_code=400,
+            detail="PDF data not available for this session"
+        )
+    
+    # Add user message to history
+    user_message = ChatMessage(
+        role="user",
+        content=request.message,
+        timestamp=datetime.now().isoformat()
+    )
+    session.messages.append(user_message)
+    
+    # Prepare context with both text and images for full PDF context
+    try:
+        # Always use visual context to support both text and images
+        # Get full text from PDF (no character limit for comprehensive context)
+        pdf_text = pdf_context_service.get_pdf_text(pdf_data, max_chars=None)
+        
+        # Get PDF pages as images
+        # For large PDFs, limit to first 15 pages for performance, but include full text
+        pdf_info = session.pdf_info or {}
+        total_pages = pdf_info.get("pages", 10)
+        max_image_pages = min(15, total_pages)  # Limit images but not text
+        
+        images = pdf_context_service.get_pdf_pages_as_images(
+            pdf_data,
+            max_pages=max_image_pages
+        )
+        
+        # Build language instruction - enforce responding ONLY in the selected chat language
+        chat_lang = session.chat_language or session.target_language or "en"
+        # Make the language instruction very explicit and strict
+        language_instruction = f"\n\nIMPORTANT: You MUST respond ONLY in {chat_lang}. Do not use any other language. All your responses must be in {chat_lang}."
+        
+        # Prepare system prompt with both text and images
+        # Limit text to 500k chars for prompt size
+        text_for_prompt = pdf_text[:500000] if len(pdf_text) > 500000 else pdf_text
+        
+        system_content = f"""You are a helpful assistant that can analyze PDF documents. 
+You have access to both the extracted text content and visual images of the PDF pages.
+The extracted text from the PDF is:
+{text_for_prompt}
+
+You will also receive images of the PDF pages. Use both the text content and visual information to provide comprehensive answers.
+Answer questions based on this content, and reference specific information from the document when possible.
+
+{language_instruction}"""
+        
+        # Prepare messages for visual chat with text context
+        messages = [
+            {
+                "role": "system",
+                "content": system_content
+            }
+        ]
+        
+        # Add conversation history (excluding the greeting and current user message)
+        # Skip the first message (greeting) and the last one (current user message)
+        for msg in session.messages[1:-1]:  # Skip greeting (index 0) and current user message (last)
+            messages.append({
+                "role": msg.role,
+                "content": msg.content
+            })
+        
+        # Add current user message with images
+        user_content = f"Here are the PDF page images. Please answer this question: {request.message}"
+        messages.append({
+            "role": "user",
+            "content": user_content
+        })
+        
+        # Get response using visual context (which includes both text and images)
+        if request.stream:
+            response_text = chat_service.chat_with_visual_context(
+                messages=messages,
+                images=images,
+                model=session.model,
+                stream=False
+            )
+        else:
+            response_text = chat_service.chat_with_visual_context(
+                messages=messages,
+                images=images,
+                model=session.model,
+                stream=False
+            )
+        
+        # Add assistant response to history
+        assistant_message = ChatMessage(
+            role="assistant",
+            content=response_text,
+            timestamp=datetime.now().isoformat()
+        )
+        session.messages.append(assistant_message)
+        
+        return ChatResponse(
+            session_id=request.session_id,
+            message=response_text,
+            model=session.model,
+            finish_reason="stop"
+        )
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to get chat response: {str(e)}"
+        )
+
+
+@app.get("/chat/session/{session_id}", response_model=ChatSession)
+async def get_chat_session(session_id: str):
+    """Get chat session history."""
+    session = chat_sessions.get(session_id)
+    if not session:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Chat session {session_id} not found"
+        )
+    # Remove PDF data before returning (don't send binary data in response)
+    session_dict = session.model_dump()
+    return session_dict
+
+
+@app.delete("/chat/session/{session_id}")
+async def delete_chat_session(session_id: str):
+    """Clear a chat session."""
+    if session_id in chat_sessions:
+        del chat_sessions[session_id]
+    if session_id in pdf_data_storage:
+        del pdf_data_storage[session_id]
+    if session_id in chat_sessions or session_id in pdf_data_storage:
+        return {"status": "deleted", "session_id": session_id}
+    else:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Chat session {session_id} not found"
+        ) 
