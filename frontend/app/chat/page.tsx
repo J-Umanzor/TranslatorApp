@@ -21,9 +21,6 @@ export default function ChatPage() {
   >([]);
   const [selectedModel, setSelectedModel] = useState<string>("");
   const [useVisual, setUseVisual] = useState(false);
-  const [contextType, setContextType] = useState<"original" | "translated">(
-    "original"
-  );
   const [chatError, setChatError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -197,7 +194,7 @@ export default function ChatPage() {
           {/* Chat Component */}
           <Chat
             pdfBase64={pdfBase64}
-            contextType={contextType}
+            contextType="original"
             onError={(error) => setChatError(error)}
             className="w-full"
           />

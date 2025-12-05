@@ -406,8 +406,9 @@ export default function ResultsPage() {
                 )}
                 <Chat
                   pdfBase64={translatedPdfBase64 || originalPdfBase64 || ""}
-                  contextType={translatedPdfBase64 ? "translated" : "original"}
+                  contextType="translated"
                   targetLanguage={metadata?.target_language}
+                  sourceLanguage={metadata?.source_language}
                   onError={(error) => setChatError(error)}
                 />
               </AccordionItem>

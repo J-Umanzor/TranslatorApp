@@ -6,6 +6,7 @@ import { Button } from "@heroui/button";
 import { Input } from "@heroui/input";
 import { Select, SelectItem } from "@heroui/select";
 import { Spinner } from "@heroui/spinner";
+import { Switch } from "@heroui/switch";
 import type { ChatMessage, ChatSession } from "@/types";
 import {
   startChat,
@@ -18,6 +19,7 @@ interface ChatProps {
   pdfBase64: string;
   contextType?: "original" | "translated";
   targetLanguage?: string;
+  sourceLanguage?: string;
   onError?: (error: string) => void;
   className?: string;
 }
@@ -26,6 +28,7 @@ export default function Chat({
   pdfBase64,
   contextType = "translated",
   targetLanguage,
+  sourceLanguage,
   onError,
   className = "",
 }: ChatProps) {
@@ -39,9 +42,7 @@ export default function Chat({
   >([]);
   const [selectedModel, setSelectedModel] = useState<string>("");
   const [useVisual, setUseVisual] = useState(false);
-  const [currentContextType, setCurrentContextType] = useState<
-    "original" | "translated"
-  >(contextType);
+  const [useSourceLanguage, setUseSourceLanguage] = useState<boolean>(false);
   const [pdfBase64State, setPdfBase64State] = useState<string>(pdfBase64);
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
@@ -64,7 +65,7 @@ export default function Chat({
     if (pdfBase64State) {
       initializeChat();
     }
-  }, [pdfBase64State, currentContextType]);
+  }, [pdfBase64State, contextType, useSourceLanguage]);
 
   const initializeChat = async () => {
     setIsInitializing(true);
@@ -76,10 +77,12 @@ export default function Chat({
       // Start chat session
       const response = await startChat(
         pdfBase64State,
-        currentContextType,
+        contextType,
         undefined,
         useVisual,
-        targetLanguage
+        targetLanguage,
+        sourceLanguage,
+        useSourceLanguage
       );
 
       setSessionId(response.session_id);
@@ -163,9 +166,9 @@ export default function Chat({
     }
   };
 
-  const handleContextTypeChange = (newType: "original" | "translated") => {
-    setCurrentContextType(newType);
-    setMessages([]);
+  const handleLanguageToggle = (useSource: boolean) => {
+    setUseSourceLanguage(useSource);
+    setMessages([]); // Clear messages when changing language
   };
 
   const handleModelChange = async (newModel: string) => {
@@ -184,7 +187,10 @@ export default function Chat({
         pdfBase64State,
         currentContextType,
         newModel, // Pass the selected model
-        useVisual
+        useVisual,
+        targetLanguage,
+        sourceLanguage,
+        useSourceLanguage
       );
       
       setSessionId(response.session_id);
@@ -223,7 +229,36 @@ export default function Chat({
           {/* Header */}
           <div className="flex items-center justify-between mb-4">
             <h3 className="text-lg font-semibold">Chat with PDF</h3>
-            <div className="flex gap-2">
+            <div className="flex gap-2 items-center">
+              {/* Language Toggle */}
+              {sourceLanguage && targetLanguage && (
+                <div className="flex items-center gap-2 px-3 py-1 bg-default-100 rounded-lg">
+                  <span className="text-xs text-default-600 whitespace-nowrap">
+                    {useSourceLanguage ? "Source" : "Translated"}
+                  </span>
+                  <Switch
+                    size="sm"
+                    isSelected={useSourceLanguage}
+                    onValueChange={handleLanguageToggle}
+                    aria-label="Toggle chat language"
+                    isDisabled={isLoading || isInitializing}
+                  />
+                  <span className="text-xs text-default-600 font-medium whitespace-nowrap">
+                    {(() => {
+                      const lang = useSourceLanguage ? sourceLanguage : targetLanguage;
+                      try {
+                        if (typeof Intl !== "undefined" && typeof Intl.DisplayNames === "function") {
+                          const formatter = new Intl.DisplayNames(["en"], { type: "language" });
+                          return formatter.of(lang) || lang.toUpperCase();
+                        }
+                      } catch {
+                        // ignore formatter errors
+                      }
+                      return lang.toUpperCase();
+                    })()}
+                  </span>
+                </div>
+              )}
               {/* Model Selector */}
               <Select
                 size="sm"
@@ -243,24 +278,6 @@ export default function Chat({
                     {model.name}
                   </SelectItem>
                 ))}
-              </Select>
-              
-              {/* Context Type Selector */}
-              <Select
-                size="sm"
-                selectedKeys={[currentContextType]}
-                onSelectionChange={(keys) => {
-                  const selected = Array.from(keys)[0] as
-                    | "original"
-                    | "translated";
-                  if (selected) {
-                    handleContextTypeChange(selected);
-                  }
-                }}
-                className="w-40"
-              >
-                <SelectItem key="original">Original PDF</SelectItem>
-                <SelectItem key="translated">Translated PDF</SelectItem>
               </Select>
             </div>
           </div>

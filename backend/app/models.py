@@ -15,6 +15,8 @@ class ChatStartRequest(BaseModel):
     model: Optional[str] = None
     use_visual: bool = False
     target_language: Optional[str] = None
+    source_language: Optional[str] = None
+    use_source_language: bool = False  # Toggle: if True, chat in source language, else target language
 
 
 class ChatMessageRequest(BaseModel):
@@ -37,6 +39,8 @@ class ChatSession(BaseModel):
     messages: List[ChatMessage] = []
     pdf_info: Optional[Dict[str, Any]] = None
     target_language: Optional[str] = None
+    source_language: Optional[str] = None
+    chat_language: Optional[str] = None  # The language the chatbot should respond in
 
 
 class ChatResponse(BaseModel):

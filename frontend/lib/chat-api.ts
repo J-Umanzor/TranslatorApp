@@ -27,7 +27,9 @@ export async function startChat(
   contextType: "original" | "translated" = "translated",
   model?: string,
   useVisual: boolean = false,
-  targetLanguage?: string
+  targetLanguage?: string,
+  sourceLanguage?: string,
+  useSourceLanguage: boolean = false
 ): Promise<ChatStartResponse> {
   const formData = new FormData();
   
@@ -57,6 +59,10 @@ export async function startChat(
   if (targetLanguage) {
     formData.append("target_language", targetLanguage);
   }
+  if (sourceLanguage) {
+    formData.append("source_language", sourceLanguage);
+  }
+  formData.append("use_source_language", useSourceLanguage.toString());
 
   const response = await fetch(`${API_BASE_URL}/chat/start`, {
     method: "POST",

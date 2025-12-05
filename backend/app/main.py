@@ -881,7 +881,9 @@ async def start_chat(
     context_type: str = Form("translated"),
     model: Optional[str] = Form(None),
     use_visual: bool = Form(False),
-    target_language: Optional[str] = Form(None)
+    target_language: Optional[str] = Form(None),
+    source_language: Optional[str] = Form(None),
+    use_source_language: bool = Form(False)
 ):
     """
     Initialize a new chat session with PDF context.
@@ -949,18 +951,24 @@ async def start_chat(
     # Use provided model or recommended
     selected_model = model or recommended_model
     
-    # Detect target language if not provided
-    detected_language = target_language
-    if not detected_language:
+    # Detect target and source languages if not provided
+    detected_target_language = target_language
+    if not detected_target_language:
         try:
             # Try to detect from PDF text
             pdf_text = pdf_context_service.get_pdf_text(pdf_data, max_chars=2000)
             from app.services.language_detection import detect_language
-            detected_language = detect_language(pdf_text)
-            if detected_language == "unknown":
-                detected_language = "en"  # Default to English
+            detected_target_language = detect_language(pdf_text)
+            if detected_target_language == "unknown":
+                detected_target_language = "en"  # Default to English
         except:
-            detected_language = "en"  # Default to English
+            detected_target_language = "en"  # Default to English
+    
+    detected_source_language = source_language or "en"  # Default to English if not provided
+    
+    # Determine chat language based on toggle
+    # If use_source_language is True, chat in source language, otherwise use target language (default)
+    chat_language = detected_source_language if use_source_language else detected_target_language
     
     # Create session
     session_id = str(uuid.uuid4())
@@ -971,11 +979,13 @@ async def start_chat(
         use_visual=use_visual,
         messages=[],
         pdf_info=pdf_info,
-        target_language=detected_language
+        target_language=detected_target_language,
+        source_language=detected_source_language,
+        chat_language=chat_language
     )
     
     # Create friendly greeting message
-    # Generate greeting in target language
+    # Generate greeting in chat language
     greeting_texts = {
         "en": f"Hello! I'm here to help you with your PDF document. This document has {pdf_info['pages']} page{'s' if pdf_info['pages'] != 1 else ''} and appears to be a {pdf_info['kind']} PDF. What would you like to know about it?",
         "es": f"¡Hola! Estoy aquí para ayudarte con tu documento PDF. Este documento tiene {pdf_info['pages']} página{'s' if pdf_info['pages'] != 1 else ''} y parece ser un PDF {pdf_info['kind']}. ¿Qué te gustaría saber sobre él?",
@@ -983,8 +993,8 @@ async def start_chat(
         "de": f"Hallo! Ich bin hier, um Ihnen bei Ihrem PDF-Dokument zu helfen. Dieses Dokument hat {pdf_info['pages']} Seite{'n' if pdf_info['pages'] != 1 else ''} und scheint ein {pdf_info['kind']} PDF zu sein. Was möchten Sie darüber wissen?",
     }
     
-    # Get greeting in target language or default to English
-    greeting = greeting_texts.get(detected_language, greeting_texts["en"])
+    # Get greeting in chat language or default to English
+    greeting = greeting_texts.get(chat_language, greeting_texts["en"])
     
     # Add greeting as first message
     greeting_message = ChatMessage(
@@ -1067,9 +1077,10 @@ async def send_chat_message(request: ChatMessageRequest):
             max_pages=max_image_pages
         )
         
-        # Build language instruction
-        target_lang = session.target_language or "en"
-        language_instruction = f" Please respond in {target_lang}." if target_lang != "en" else ""
+        # Build language instruction - enforce responding ONLY in the selected chat language
+        chat_lang = session.chat_language or session.target_language or "en"
+        # Make the language instruction very explicit and strict
+        language_instruction = f"\n\nIMPORTANT: You MUST respond ONLY in {chat_lang}. Do not use any other language. All your responses must be in {chat_lang}."
         
         # Prepare system prompt with both text and images
         # Limit text to 500k chars for prompt size
@@ -1081,7 +1092,9 @@ The extracted text from the PDF is:
 {text_for_prompt}
 
 You will also receive images of the PDF pages. Use both the text content and visual information to provide comprehensive answers.
-Answer questions based on this content, and reference specific information from the document when possible.{language_instruction}"""
+Answer questions based on this content, and reference specific information from the document when possible.
+
+{language_instruction}"""
         
         # Prepare messages for visual chat with text context
         messages = [
