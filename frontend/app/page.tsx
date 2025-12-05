@@ -503,8 +503,9 @@ export default function Home() {
           <CardBody className="p-6">
             <h3 className="text-lg font-semibold mb-4">Original PDF Preview</h3>
             <div className="border border-default-200 rounded-lg overflow-hidden shadow-lg">
-              <iframe
+              <embed
                 src={originalPdfDataUrl}
+                type="application/pdf"
                 className="w-full"
                 style={{ minHeight: "600px", height: "80vh" }}
                 title="Original PDF"
