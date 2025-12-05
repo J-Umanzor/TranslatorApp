@@ -4,12 +4,37 @@ Translate PDF documents while preserving formatting. Supports both digital and s
 
 ## 🚀 Quick Start
 
+### Option 1: One-Command Install (No Cloning Required)
+
+**Linux/macOS:**
+```bash
+curl -fsSL https://raw.githubusercontent.com/J-Umanzor/TranslatorApp/docker/install.sh | bash
+```
+
+**Windows (PowerShell):**
+```powershell
+iwr -useb https://raw.githubusercontent.com/J-Umanzor/TranslatorApp/docker/install.ps1 | iex
+```
+
+**Or manually:**
+```bash
+# Download and run docker-compose
+curl -fsSL https://raw.githubusercontent.com/J-Umanzor/TranslatorApp/docker/docker-compose.prod.yml -o docker-compose.prod.yml
+docker-compose -f docker-compose.prod.yml pull
+docker-compose -f docker-compose.prod.yml up -d
+```
+
+Then open `http://localhost:3000` in your browser!
+
+### Option 2: Clone and Build from Source
+
 1. **Install Docker Desktop** (if you don't have it): [Download Docker Desktop](https://www.docker.com/products/docker-desktop/)
 
 2. **Clone this repository**:
    ```bash
-   git clone <your-repo-url>
+   git clone https://github.com/J-Umanzor/TranslatorApp.git
    cd TranslatorApp
+   git checkout docker  # Switch to docker branch
    ```
 
 3. **Start the application**:
@@ -18,8 +43,6 @@ Translate PDF documents while preserving formatting. Supports both digital and s
    ```
 
 4. **Open your browser** and go to: `http://localhost:3000`
-
-That's it! The application is now running.
 
 ## Prerequisites
 

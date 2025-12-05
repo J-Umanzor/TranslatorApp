@@ -2,7 +2,7 @@ version: '3.8'
 
 services:
   backend:
-    image: ${BACKEND_IMAGE:-translatorapp/backend:latest}
+    image: ${BACKEND_IMAGE:-jumanzor/translator-backend:latest}
     container_name: translator-backend
     ports:
       - "8000:8000"
@@ -28,7 +28,7 @@ services:
       start_period: 40s
 
   frontend:
-    image: ${FRONTEND_IMAGE:-translatorapp/frontend:latest}
+    image: ${FRONTEND_IMAGE:-jumanzor/translator-frontend:latest}
     container_name: translator-frontend
     ports:
       - "3000:3000"
