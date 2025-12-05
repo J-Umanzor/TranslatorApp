@@ -73,8 +73,14 @@ DEFAULT_LLM_MODEL=llama3.1:8b
 Write-Host "🐳 Pulling Docker images and starting services..." -ForegroundColor Cyan
 Write-Host ""
 
-& $dockerCompose.Split(' ') -f docker-compose.prod.yml pull
-& $dockerCompose.Split(' ') -f docker-compose.prod.yml up -d
+# Execute docker compose commands properly
+if ($dockerCompose -eq "docker compose") {
+    docker compose -f docker-compose.prod.yml pull
+    docker compose -f docker-compose.prod.yml up -d
+} else {
+    docker-compose -f docker-compose.prod.yml pull
+    docker-compose -f docker-compose.prod.yml up -d
+}
 
 Write-Host ""
 Write-Host "✅ Application is starting!" -ForegroundColor Green
@@ -84,9 +90,15 @@ Write-Host "📍 Backend API at: http://localhost:8000" -ForegroundColor Cyan
 Write-Host "📍 LibreTranslate at: http://localhost:5000" -ForegroundColor Cyan
 Write-Host ""
 Write-Host "📋 Useful commands:" -ForegroundColor Yellow
-Write-Host "   - View logs: $dockerCompose -f docker-compose.prod.yml logs -f"
-Write-Host "   - Stop: $dockerCompose -f docker-compose.prod.yml down"
-Write-Host "   - Restart: $dockerCompose -f docker-compose.prod.yml restart"
+if ($dockerCompose -eq "docker compose") {
+    Write-Host "   - View logs: docker compose -f docker-compose.prod.yml logs -f"
+    Write-Host "   - Stop: docker compose -f docker-compose.prod.yml down"
+    Write-Host "   - Restart: docker compose -f docker-compose.prod.yml restart"
+} else {
+    Write-Host "   - View logs: docker-compose -f docker-compose.prod.yml logs -f"
+    Write-Host "   - Stop: docker-compose -f docker-compose.prod.yml down"
+    Write-Host "   - Restart: docker-compose -f docker-compose.prod.yml restart"
+}
 Write-Host ""
 Write-Host "⚠️  Note: Make sure Ollama is running on your host machine for the chatbot feature." -ForegroundColor Yellow
 Write-Host "   Run: ollama pull llama3.1:8b (if you haven't already)" -ForegroundColor Yellow
