@@ -54,7 +54,35 @@ Then open `http://localhost:3000` in your browser!
 
 ### Azure Translator (Optional)
 
-If you want to use Azure Translator instead of LibreTranslate, create a `.env` file in either:
+**For Docker users (one-command install):**
+
+The install script automatically creates a `.env` file template in the current directory. To use Azure Translator:
+
+1. **Edit the `.env` file** that was created in the directory where you ran the install script:
+   ```bash
+   # On Linux/macOS
+   nano .env
+   
+   # On Windows
+   notepad .env
+   ```
+
+2. **Add your Azure credentials**:
+   ```env
+   AZURE_TRANSLATOR_KEY=your_key_here
+   AZURE_TRANSLATOR_ENDPOINT=https://api.cognitive.microsofttranslator.com
+   AZURE_TRANSLATOR_REGION=your_region_here
+   ```
+
+3. **Restart the containers** to apply changes:
+   ```bash
+   docker-compose -f docker-compose.prod.yml down
+   docker-compose -f docker-compose.prod.yml up -d
+   ```
+
+**For users who cloned the repository:**
+
+Create a `.env` file in either:
 - **Project root** (recommended for Docker): `TranslatorApp/.env`
 - **Backend folder** (for local development): `TranslatorApp/backend/.env`
 
@@ -68,7 +96,7 @@ OLLAMA_BASE_URL=http://host.docker.internal:11434
 DEFAULT_LLM_MODEL=llama3.1:8b
 ```
 
-To get Azure Translator credentials:
+**To get Azure Translator credentials:**
 1. Go to [Azure Portal](https://portal.azure.com/)
 2. Create a "Translator" resource
 3. Copy the API key, endpoint, and region to your `.env` file

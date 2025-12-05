@@ -44,6 +44,31 @@ fi
 echo "✅ Configuration downloaded"
 echo ""
 
+# Create .env file if it doesn't exist
+if [ ! -f .env ]; then
+    echo "📝 Creating .env file template..."
+    cat > .env << 'EOF'
+# Azure Translator Configuration (Optional - only needed if using Azure Translator)
+AZURE_TRANSLATOR_KEY=
+AZURE_TRANSLATOR_ENDPOINT=
+AZURE_TRANSLATOR_REGION=
+
+# Ollama Configuration
+# The Docker setup uses host.docker.internal to connect to Ollama on your host machine
+OLLAMA_BASE_URL=http://host.docker.internal:11434
+DEFAULT_LLM_MODEL=llama3.1:8b
+EOF
+    echo "✅ Created .env file template"
+    echo ""
+    echo "💡 To use Azure Translator, edit the .env file and add your credentials:"
+    echo "   - AZURE_TRANSLATOR_KEY=your_key_here"
+    echo "   - AZURE_TRANSLATOR_ENDPOINT=https://api.cognitive.microsofttranslator.com"
+    echo "   - AZURE_TRANSLATOR_REGION=your_region_here"
+    echo ""
+    read -p "Press Enter to continue (or Ctrl+C to edit .env first)..."
+    echo ""
+fi
+
 # Pull and start containers
 echo "🐳 Pulling Docker images and starting services..."
 echo ""

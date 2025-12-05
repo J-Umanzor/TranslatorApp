@@ -44,6 +44,31 @@ try {
 
 Write-Host ""
 
+# Create .env file if it doesn't exist
+if (-Not (Test-Path .env)) {
+    Write-Host "📝 Creating .env file template..." -ForegroundColor Yellow
+    @"
+# Azure Translator Configuration (Optional - only needed if using Azure Translator)
+AZURE_TRANSLATOR_KEY=
+AZURE_TRANSLATOR_ENDPOINT=
+AZURE_TRANSLATOR_REGION=
+
+# Ollama Configuration
+# The Docker setup uses host.docker.internal to connect to Ollama on your host machine
+OLLAMA_BASE_URL=http://host.docker.internal:11434
+DEFAULT_LLM_MODEL=llama3.1:8b
+"@ | Out-File -FilePath .env -Encoding utf8
+    Write-Host "✅ Created .env file template" -ForegroundColor Green
+    Write-Host ""
+    Write-Host "💡 To use Azure Translator, edit the .env file and add your credentials:" -ForegroundColor Cyan
+    Write-Host "   - AZURE_TRANSLATOR_KEY=your_key_here"
+    Write-Host "   - AZURE_TRANSLATOR_ENDPOINT=https://api.cognitive.microsofttranslator.com"
+    Write-Host "   - AZURE_TRANSLATOR_REGION=your_region_here"
+    Write-Host ""
+    Read-Host "Press Enter to continue (or Ctrl+C to edit .env first)"
+    Write-Host ""
+}
+
 # Pull and start containers
 Write-Host "🐳 Pulling Docker images and starting services..." -ForegroundColor Cyan
 Write-Host ""
