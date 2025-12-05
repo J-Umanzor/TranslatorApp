@@ -185,7 +185,7 @@ export default function Chat({
     try {
       const response = await startChat(
         pdfBase64State,
-        currentContextType,
+        contextType,
         newModel, // Pass the selected model
         useVisual,
         targetLanguage,
