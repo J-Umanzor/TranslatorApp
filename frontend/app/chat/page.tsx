@@ -15,6 +15,7 @@ export default function ChatPage() {
   const router = useRouter();
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [pdfBase64, setPdfBase64] = useState<string | null>(null);
+  const [pdfDataUrl, setPdfDataUrl] = useState<string | null>(null);
   const [isDragOver, setIsDragOver] = useState(false);
   const [availableModels, setAvailableModels] = useState<
     Array<{ name: string; model: string }>
@@ -44,7 +45,7 @@ export default function ChatPage() {
       setSelectedFile(file);
       setChatError(null);
 
-      // Convert file to base64
+      // Convert file to base64 for chat API
       const reader = new FileReader();
       reader.onload = (e) => {
         if (e.target?.result) {
@@ -53,6 +54,21 @@ export default function ChatPage() {
           const base64Match = dataUrl.match(/base64,(.+)$/);
           if (base64Match && base64Match[1]) {
             setPdfBase64(base64Match[1]);
+            
+            // Also create blob URL for PDF viewer
+            try {
+              const byteCharacters = atob(base64Match[1]);
+              const byteNumbers = new Array(byteCharacters.length);
+              for (let i = 0; i < byteCharacters.length; i++) {
+                byteNumbers[i] = byteCharacters.charCodeAt(i);
+              }
+              const byteArray = new Uint8Array(byteNumbers);
+              const blob = new Blob([byteArray], { type: "application/pdf" });
+              const blobUrl = URL.createObjectURL(blob);
+              setPdfDataUrl(blobUrl);
+            } catch (error) {
+              console.error("Failed to create blob URL for PDF viewer:", error);
+            }
           }
         }
       };
@@ -92,10 +108,24 @@ export default function ChatPage() {
   };
 
   const removeFile = () => {
+    // Clean up blob URL if it exists
+    if (pdfDataUrl && pdfDataUrl.startsWith("blob:")) {
+      URL.revokeObjectURL(pdfDataUrl);
+    }
     setSelectedFile(null);
     setPdfBase64(null);
+    setPdfDataUrl(null);
     setChatError(null);
   };
+
+  // Cleanup blob URL on unmount
+  useEffect(() => {
+    return () => {
+      if (pdfDataUrl && pdfDataUrl.startsWith("blob:")) {
+        URL.revokeObjectURL(pdfDataUrl);
+      }
+    };
+  }, [pdfDataUrl]);
 
   return (
     <section className="flex flex-col items-center justify-center gap-8 py-8 md:py-10">
@@ -152,7 +182,7 @@ export default function ChatPage() {
 
       {/* Chat Section */}
       {pdfBase64 && (
-        <div className="w-full max-w-6xl space-y-4">
+        <div className="w-full max-w-[98vw] space-y-4">
           {/* File Info Card */}
           <Card>
             <CardBody className="p-4">
@@ -191,13 +221,47 @@ export default function ChatPage() {
             </CardBody>
           </Card>
 
-          {/* Chat Component */}
-          <Chat
-            pdfBase64={pdfBase64}
-            contextType="original"
-            onError={(error) => setChatError(error)}
-            className="w-full"
-          />
+          {/* PDF Viewer and Chat Layout */}
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+            {/* PDF Viewer */}
+            <Card className="w-full">
+              <CardBody className="p-1">
+                <div className="flex items-center justify-between mb-2 px-2">
+                  <h3 className="text-lg font-semibold">PDF Document</h3>
+                </div>
+                <div className="border border-default-200 rounded-lg overflow-hidden shadow-lg relative">
+                  {pdfDataUrl ? (
+                    <iframe
+                      key={pdfDataUrl}
+                      src={pdfDataUrl}
+                      className="w-full"
+                      style={{ minHeight: "600px", height: "80vh" }}
+                      title="PDF Document"
+                      onLoad={() => console.log("PDF iframe loaded successfully")}
+                      onError={(e) => {
+                        console.error("PDF iframe error:", e);
+                        setChatError("Failed to load PDF. The file may be corrupted or too large.");
+                      }}
+                    />
+                  ) : (
+                    <div className="border border-default-200 rounded-lg p-8 text-center flex items-center justify-center" style={{ minHeight: "600px", height: "80vh" }}>
+                      <p className="text-default-500">PDF is being loaded...</p>
+                    </div>
+                  )}
+                </div>
+              </CardBody>
+            </Card>
+
+            {/* Chat Component */}
+            <div className="w-full">
+              <Chat
+                pdfBase64={pdfBase64}
+                contextType="original"
+                onError={(error) => setChatError(error)}
+                className="w-full"
+              />
+            </div>
+          </div>
         </div>
       )}
 
