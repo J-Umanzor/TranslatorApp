@@ -14,6 +14,7 @@ import {
   getAvailableModels,
   getChatSession,
 } from "@/lib/chat-api";
+import ChatSuggestions from "@/components/chat-suggestions";
 
 interface ChatProps {
   pdfBase64: string;
@@ -117,14 +118,15 @@ export default function Chat({
     }
   };
 
-  const handleSendMessage = async () => {
-    if (!inputMessage.trim() || !sessionId || isLoading) {
+  const handleSendMessage = async (messageText?: string) => {
+    const messageToSend = messageText || inputMessage;
+    if (!messageToSend.trim() || !sessionId || isLoading) {
       return;
     }
 
     const userMessage: ChatMessage = {
       role: "user",
-      content: inputMessage,
+      content: messageToSend,
       timestamp: new Date().toISOString(),
     };
 
@@ -133,7 +135,7 @@ export default function Chat({
     setIsLoading(true);
 
     try {
-      const response = await sendChatMessage(sessionId, inputMessage, false);
+      const response = await sendChatMessage(sessionId, messageToSend, false);
       const assistantMessage: ChatMessage = {
         role: "assistant",
         content: response.message,
@@ -159,6 +161,25 @@ export default function Chat({
     }
   };
 
+  const handleSuggestionClick = (suggestion: string) => {
+    handleSendMessage(suggestion);
+  };
+
+  // Determine the current chat language
+  const getCurrentChatLanguage = (): string => {
+    if (sourceLanguage && targetLanguage) {
+      return useSourceLanguage ? sourceLanguage : targetLanguage;
+    }
+    if (targetLanguage) {
+      return targetLanguage;
+    }
+    if (sourceLanguage) {
+      return sourceLanguage;
+    }
+    return "en"; // Default to English
+  };
+
+
   const handleKeyPress = (e: React.KeyboardEvent) => {
     if (e.key === "Enter" && !e.shiftKey) {
       e.preventDefault();
@@ -169,6 +190,7 @@ export default function Chat({
   const handleLanguageToggle = (useSource: boolean) => {
     setUseSourceLanguage(useSource);
     setMessages([]); // Clear messages when changing language
+    // Chat will reinitialize automatically via useEffect when useSourceLanguage changes
   };
 
   const handleModelChange = async (newModel: string) => {
@@ -323,6 +345,15 @@ export default function Chat({
             <div ref={messagesEndRef} />
           </div>
 
+          {/* Chat Suggestions - Always visible */}
+          {!isInitializing && sessionId && (
+            <ChatSuggestions
+              language={getCurrentChatLanguage()}
+              onSuggestionClick={handleSuggestionClick}
+              disabled={isLoading || !sessionId}
+            />
+          )}
+
           {/* Input */}
           <div className="flex gap-2">
             <Input
@@ -335,7 +366,7 @@ export default function Chat({
             />
             <Button
               color="primary"
-              onPress={handleSendMessage}
+              onPress={() => handleSendMessage()}
               isDisabled={isLoading || !sessionId || !inputMessage.trim()}
               isLoading={isLoading}
             >
