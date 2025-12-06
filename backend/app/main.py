@@ -985,16 +985,27 @@ async def start_chat(
     )
     
     # Create friendly greeting message
-    # Generate greeting in chat language
-    greeting_texts = {
-        "en": f"Hello! I'm here to help you with your PDF document. This document has {pdf_info['pages']} page{'s' if pdf_info['pages'] != 1 else ''} and appears to be a {pdf_info['kind']} PDF. What would you like to know about it?",
-        "es": f"¡Hola! Estoy aquí para ayudarte con tu documento PDF. Este documento tiene {pdf_info['pages']} página{'s' if pdf_info['pages'] != 1 else ''} y parece ser un PDF {pdf_info['kind']}. ¿Qué te gustaría saber sobre él?",
-        "fr": f"Bonjour! Je suis là pour vous aider avec votre document PDF. Ce document a {pdf_info['pages']} page{'s' if pdf_info['pages'] != 1 else ''} et semble être un PDF {pdf_info['kind']}. Que souhaitez-vous savoir à ce sujet?",
-        "de": f"Hallo! Ich bin hier, um Ihnen bei Ihrem PDF-Dokument zu helfen. Dieses Dokument hat {pdf_info['pages']} Seite{'n' if pdf_info['pages'] != 1 else ''} und scheint ein {pdf_info['kind']} PDF zu sein. Was möchten Sie darüber wissen?",
-    }
+    # Generate greeting in chat language using translation service
+    base_greeting = f"Hello! I'm here to help you with your PDF document. This document has {pdf_info['pages']} page{'s' if pdf_info['pages'] != 1 else ''} and appears to be a {pdf_info['kind']} PDF. What would you like to know about it?"
     
-    # Get greeting in chat language or default to English
-    greeting = greeting_texts.get(chat_language, greeting_texts["en"])
+    # Translate greeting to chat language if not English
+    if chat_language and chat_language != "en":
+        try:
+            # Try to use Azure first, then fallback to LibreTranslate if Azure fails
+            try:
+                greeting = translate_text(base_greeting, chat_language, "en", provider="azure")
+            except:
+                # If Azure fails, try LibreTranslate
+                try:
+                    greeting = translate_text(base_greeting, chat_language, "en", provider="libretranslate")
+                except:
+                    # If both fail, use English
+                    greeting = base_greeting
+        except Exception:
+            # If translation fails for any reason, use English
+            greeting = base_greeting
+    else:
+        greeting = base_greeting
     
     # Add greeting as first message
     greeting_message = ChatMessage(
