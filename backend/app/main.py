@@ -2,6 +2,7 @@ import base64
 import tempfile
 import os
 import platform
+import html
 from typing import List, Optional, Any
 
 from fastapi import FastAPI, UploadFile, File, HTTPException, Form
@@ -316,6 +317,165 @@ def _decimal_to_hex_color(decimal_color: int) -> str:
     return f'#{hex_color}'
 
 
+def _hex_to_rgb(hex_color: str) -> tuple[float, float, float]:
+    """
+    Convert hex color string to RGB tuple (0-1 range for PyMuPDF).
+    
+    Args:
+        hex_color: Hex color string (e.g., '#000000' or '000000')
+        
+    Returns:
+        RGB tuple with values in 0-1 range
+    """
+    # Remove '#' if present
+    hex_color = hex_color.lstrip('#')
+    
+    # Convert to RGB (0-255 range)
+    r = int(hex_color[0:2], 16)
+    g = int(hex_color[2:4], 16)
+    b = int(hex_color[4:6], 16)
+    
+    # Convert to 0-1 range for PyMuPDF
+    return (r / 255.0, g / 255.0, b / 255.0)
+
+
+def _contains_cjk_characters(text: str) -> bool:
+    """
+    Check if text contains CJK (Chinese, Japanese, Korean) characters.
+    
+    Args:
+        text: Text to check
+        
+    Returns:
+        True if text contains CJK characters, False otherwise
+    """
+    if not text:
+        return False
+    
+    # CJK Unicode ranges:
+    # CJK Unified Ideographs: U+4E00-U+9FFF
+    # CJK Extension A: U+3400-U+4DBF
+    # CJK Extension B: U+20000-U+2A6DF
+    # Hiragana: U+3040-U+309F
+    # Katakana: U+30A0-U+30FF
+    # Hangul: U+AC00-U+D7AF
+    for char in text:
+        code_point = ord(char)
+        if (
+            (0x4E00 <= code_point <= 0x9FFF) or  # CJK Unified Ideographs
+            (0x3400 <= code_point <= 0x4DBF) or  # CJK Extension A
+            (0x3040 <= code_point <= 0x309F) or  # Hiragana
+            (0x30A0 <= code_point <= 0x30FF) or  # Katakana
+            (0xAC00 <= code_point <= 0xD7AF)     # Hangul
+        ):
+            return True
+    return False
+
+
+def _get_cjk_font(target_language: Optional[str] = None):
+    """
+    Get a font that supports CJK (Chinese, Japanese, Korean) characters.
+    Tries to load from font files first, then falls back to built-in fonts.
+    
+    Args:
+        target_language: Language code (e.g., 'ja', 'zh', 'ko') to select appropriate font
+    
+    Returns:
+        fitz.Font object if a CJK font is found, None otherwise
+    """
+    # Get the backend directory and fonts path
+    backend_dir = Path(__file__).parent.parent
+    fonts_dir = backend_dir / "fonts"
+    
+    # Map language codes to font files
+    language_font_map = {
+        # Japanese
+        "ja": "NotoSerifCJKjp-Regular.otf",
+        "jp": "NotoSerifCJKjp-Regular.otf",
+        "jpn": "NotoSerifCJKjp-Regular.otf",
+        # Simplified Chinese
+        "zh": "NotoSerifCJKsc-Regular.otf",
+        "zh-cn": "NotoSerifCJKsc-Regular.otf",
+        "zh-hans": "NotoSerifCJKsc-Regular.otf",
+        "zh-simplified": "NotoSerifCJKsc-Regular.otf",
+        # Traditional Chinese (Taiwan)
+        "zh-tw": "NotoSerifCJKtc-Regular.otf",
+        "zh-hant": "NotoSerifCJKtc-Regular.otf",
+        "zh-traditional": "NotoSerifCJKtc-Regular.otf",
+        # Traditional Chinese (Hong Kong)
+        "zh-hk": "NotoSerifCJKhk-Regular.otf",
+        # Korean
+        "ko": "NotoSerifCJKkr-Regular.otf",
+        "kr": "NotoSerifCJKkr-Regular.otf",
+        "kor": "NotoSerifCJKkr-Regular.otf",
+    }
+    
+    # Try to load font file based on target language
+    if target_language:
+        target_language_lower = target_language.lower().strip()
+        font_filename = language_font_map.get(target_language_lower)
+        
+        if font_filename:
+            font_path = fonts_dir / font_filename
+            if font_path.exists():
+                try:
+                    # Use absolute path to avoid any path issues
+                    font_path_abs = str(font_path.resolve())
+                    font = fitz.Font(fontfile=font_path_abs)
+                    print(f"Successfully loaded CJK font: {font_path_abs} for language {target_language}")
+                    return font
+                except Exception as e:
+                    print(f"Failed to load font from file {font_path}: {e}")
+                    import traceback
+                    traceback.print_exc()
+    
+    # If language-specific font not found, try all available font files
+    font_files = [
+        "NotoSerifCJKjp-Regular.otf",  # Japanese (most common for CJK issues)
+        "NotoSerifCJKsc-Regular.otf",  # Simplified Chinese
+        "NotoSerifCJKtc-Regular.otf",  # Traditional Chinese
+        "NotoSerifCJKkr-Regular.otf",  # Korean
+        "NotoSerifCJKhk-Regular.otf",  # Hong Kong
+    ]
+    
+    for font_filename in font_files:
+        font_path = fonts_dir / font_filename
+        if font_path.exists():
+            try:
+                # Use absolute path to avoid any path issues
+                font_path_abs = str(font_path.resolve())
+                font = fitz.Font(fontfile=font_path_abs)
+                print(f"Successfully loaded CJK font: {font_path_abs}")
+                return font
+            except Exception as e:
+                print(f"Failed to load font from file {font_path}: {e}")
+                continue
+    
+    # Fallback to built-in PyMuPDF fonts
+    cjk_font_names = [
+        "japan",         # Japanese font
+        "japan-s",       # Japanese font (alternate)
+        "china-s",       # Chinese Simplified
+        "china-ss",      # Chinese Simplified (alternate)
+        "china-t",       # Chinese Traditional
+        "korea",         # Korean
+        "cjk",           # Generic CJK font
+        "noto",          # Noto font (if available)
+    ]
+    
+    for font_name in cjk_font_names:
+        try:
+            font = fitz.Font(font_name)
+            print(f"Using built-in PyMuPDF font: {font_name}")
+            return font
+        except:
+            continue
+    
+    # If no font works, return None
+    print("WARNING: No CJK font could be loaded!")
+    return None
+
+
 def translate_digital_pdf_with_layout(
     doc: fitz.Document,
     target_language: str,
@@ -407,6 +567,55 @@ def translate_digital_pdf_with_layout(
     # Create translated document
     translated_doc = fitz.open()
     translated_doc.insert_pdf(doc)
+    
+    # Pre-load CJK font path once for the entire document (more efficient for large documents)
+    cjk_font_path = None
+    cjk_font_name = None
+    # Check if any translated text contains CJK characters
+    sample_text = "".join(translated_blocks[:min(100, len(translated_blocks))])
+    if _contains_cjk_characters(sample_text):
+        # Get font file path instead of font object
+        backend_dir = Path(__file__).parent.parent
+        fonts_dir = backend_dir / "fonts"
+        
+        language_font_map = {
+            "ja": "NotoSerifCJKjp-Regular.otf",
+            "jp": "NotoSerifCJKjp-Regular.otf",
+            "jpn": "NotoSerifCJKjp-Regular.otf",
+            "zh": "NotoSerifCJKsc-Regular.otf",
+            "zh-cn": "NotoSerifCJKsc-Regular.otf",
+            "zh-hans": "NotoSerifCJKsc-Regular.otf",
+            "zh-tw": "NotoSerifCJKtc-Regular.otf",
+            "zh-hant": "NotoSerifCJKtc-Regular.otf",
+            "zh-hk": "NotoSerifCJKhk-Regular.otf",
+            "ko": "NotoSerifCJKkr-Regular.otf",
+            "kr": "NotoSerifCJKkr-Regular.otf",
+        }
+        
+        target_language_lower = target_language.lower().strip()
+        font_filename = language_font_map.get(target_language_lower)
+        
+        if font_filename:
+            font_path = fonts_dir / font_filename
+            if font_path.exists():
+                cjk_font_path = str(font_path.resolve())
+                cjk_font_name = "CJKFont"  # Name to use when embedding
+                print(f"Pre-loaded CJK font path for language {target_language}: {cjk_font_path}")
+        
+        if not cjk_font_path:
+            # Try any available CJK font
+            for font_file in ["NotoSerifCJKjp-Regular.otf", "NotoSerifCJKsc-Regular.otf", 
+                             "NotoSerifCJKtc-Regular.otf", "NotoSerifCJKkr-Regular.otf"]:
+                font_path = fonts_dir / font_file
+                if font_path.exists():
+                    cjk_font_path = str(font_path.resolve())
+                    cjk_font_name = "CJKFont"
+                    print(f"Using available CJK font: {cjk_font_path}")
+                    break
+        
+        if not cjk_font_path:
+            print(f"WARNING: Could not find CJK font file for language {target_language}")
+    
     translated_text_parts: List[str] = []
     original_text_parts: List[str] = []
     block_index = 0
@@ -493,62 +702,208 @@ def translate_digital_pdf_with_layout(
 
             rect = fitz.Rect(*enlarged_coords)
             font_weight = "bold" if is_bold else "normal"
+            
+            # Check if text contains CJK characters
+            has_cjk = _contains_cjk_characters(translated_text)
 
-            # Handle links
-            if link_info:
-                if link_info.get("uri"):
-                    translated_text = f'<a href="{link_info["uri"]}" style="color: {color}; text-decoration: underline;">{translated_text}</a>'
-                elif link_info.get("page", -1) >= 0:
-                    page_num = link_info["page"]
-                    translated_text = f'<a href="#page{page_num}" style="color: {color}; text-decoration: underline;">{translated_text}</a>'
-
-            # CSS for styling
-            css = f"""
-            * {{
-                color: {color};
-                font-weight: {font_weight};
-                font-size: {font_size}px;
-                line-height: 1.2;
-                word-wrap: break-word;
-                overflow-wrap: break-word;
-                width: 100%;
-                box-sizing: border-box;
-                margin: 0;
-                padding: 0;
-            }}
-            a {{
-                text-decoration: underline;
-            }}
-            """
-
-            # HTML content with inline styles
-            html_content = f'<div style="font-size: {font_size}px; color: {color}; font-weight: {font_weight}; line-height: 1.2; word-wrap: break-word;">{translated_text}</div>'
-
-            try:
-                # Use HTML insertion for better formatting and automatic wrapping
-                new_page.insert_htmlbox(rect, html_content, css=css, rotate=0)
-
-                # Add link annotation if needed
-                if link_info:
+            # For CJK characters, embed font and use textbox insertion
+            if has_cjk:
+                try:
+                    # Convert hex color to RGB tuple for PyMuPDF
+                    rgb_color = _hex_to_rgb(color)
+                    
+                    # Embed font in page if we have a font file
+                    font_name_to_use = None
+                    if cjk_font_path and cjk_font_name:
+                        try:
+                            # Embed the font in the page (only needs to be done once per page)
+                            if not hasattr(new_page, '_cjk_font_embedded'):
+                                print(f"Embedding CJK font '{cjk_font_name}' from '{cjk_font_path}' on page {page_number}")
+                                new_page.insert_font(fontname=cjk_font_name, fontfile=cjk_font_path)
+                                new_page._cjk_font_embedded = True
+                                print(f"Successfully embedded CJK font on page {page_number}")
+                                # Test that the font works by inserting a test character
+                                try:
+                                    test_rect = fitz.Rect(10, 10, 50, 30)
+                                    test_result = new_page.insert_textbox(test_rect, "测试", fontsize=12, fontname=cjk_font_name, align=0)
+                                    if test_result > 0:
+                                        print(f"Font test successful: {test_result} chars fitted")
+                                    else:
+                                        print(f"WARNING: Font test failed - {test_result} chars fitted")
+                                except Exception as test_error:
+                                    print(f"Font test insertion failed: {test_error}")
+                            # Always set font_name_to_use after embedding (for all blocks on this page)
+                            font_name_to_use = cjk_font_name
+                            print(f"DEBUG: Set font_name_to_use='{font_name_to_use}' for block on page {page_number}")
+                        except Exception as embed_error:
+                            print(f"Failed to embed CJK font on page {page_number}: {embed_error}")
+                            import traceback
+                            traceback.print_exc()
+                            # Try built-in CJK fonts as fallback
+                            for builtin_font in ["japan", "japan-s", "china-s", "china-t", "korea", "cjk"]:
+                                try:
+                                    font_name_to_use = builtin_font
+                                    print(f"Using built-in font '{builtin_font}' as fallback")
+                                    break
+                                except:
+                                    continue
+                    else:
+                        print(f"DEBUG: cjk_font_path={cjk_font_path}, cjk_font_name={cjk_font_name} on page {page_number}")
+                    
+                    if font_name_to_use:
+                        # Use textbox insertion with the embedded font name
+                        try:
+                            # Validate rect before insertion
+                            page_rect = new_page.rect
+                            if rect.width <= 0 or rect.height <= 0:
+                                print(f"Invalid rect for CJK text: {rect}, using insert_text instead")
+                                new_page.insert_text(rect.tl, translated_text, fontsize=font_size, fontname=font_name_to_use, color=rgb_color)
+                            elif rect.x0 < 0 or rect.y0 < 0 or rect.x1 > page_rect.width or rect.y1 > page_rect.height:
+                                print(f"Rect outside page bounds: {rect}, page_rect={page_rect}, clamping and using insert_text")
+                                # Clamp to page bounds
+                                clamped_point = fitz.Point(
+                                    max(0, min(rect.x0, page_rect.width - 10)),
+                                    max(0, min(rect.y0, page_rect.height - 10))
+                                )
+                                new_page.insert_text(clamped_point, translated_text, fontsize=font_size, fontname=font_name_to_use, color=rgb_color)
+                            else:
+                                # insert_textbox returns the number of characters that fit
+                                chars_fitted = new_page.insert_textbox(rect, translated_text, fontsize=font_size, fontname=font_name_to_use, align=0, color=rgb_color)
+                                if chars_fitted <= 0:
+                                    print(f"Textbox insertion returned {chars_fitted} chars fitted, trying insert_text instead. rect={rect}, text_len={len(translated_text)}")
+                                    new_page.insert_text(rect.tl, translated_text, fontsize=font_size, fontname=font_name_to_use, color=rgb_color)
+                                else:
+                                    print(f"Successfully inserted CJK text with font '{font_name_to_use}' ({chars_fitted}/{len(translated_text)} chars fitted, rect={rect})")
+                        except Exception as textbox_error:
+                            print(f"Textbox insertion failed for CJK text (len={len(translated_text)}): {textbox_error}")
+                            # If textbox fails (e.g., text too long), try insert_text
+                            try:
+                                new_page.insert_text(rect.tl, translated_text, fontsize=font_size, fontname=font_name_to_use, color=rgb_color)
+                                print(f"Successfully inserted CJK text with insert_text using font '{font_name_to_use}'")
+                            except Exception as text_error:
+                                print(f"Font insertion failed for CJK text: {text_error}")
+                                import traceback
+                                traceback.print_exc()
+                                # Last resort: insert without font (will show dots)
+                                try:
+                                    new_page.insert_text(rect.tl, translated_text, fontsize=font_size)
+                                    print(f"Inserted CJK text without font (will show dots)")
+                                except Exception as final_error:
+                                    print(f"All insertion methods failed: {final_error}")
+                                    import traceback
+                                    traceback.print_exc()
+                    else:
+                        # No CJK font available - this will likely show dots but won't crash
+                        print(f"Warning: No CJK font available for page {page_number}, characters may not render correctly. cjk_font_path={cjk_font_path}, cjk_font_name={cjk_font_name}")
+                        try:
+                            new_page.insert_textbox(rect, translated_text, fontsize=font_size, align=0, color=rgb_color)
+                        except Exception as e:
+                            print(f"Textbox insertion failed without font: {e}")
+                            try:
+                                new_page.insert_text(rect.tl, translated_text, fontsize=font_size)
+                            except Exception as e2:
+                                print(f"All insertion methods failed: {e2}")
+                    
+                    # Add link annotation if needed
+                    if link_info:
+                            try:
+                                link_dict = {
+                                    "kind": link_info.get("kind", 1),
+                                    "from": rect
+                                }
+                                if link_info.get("uri"):
+                                    link_dict["uri"] = link_info["uri"]
+                                    link_dict["kind"] = 1
+                                elif link_info.get("page", -1) >= 0:
+                                    link_dict["page"] = link_info["page"]
+                                    link_dict["kind"] = 2
+                                    if link_info.get("to"):
+                                        link_dict["to"] = link_info["to"]
+                                new_page.insert_link(link_dict)
+                            except Exception:
+                                pass  # Silently fail if link insertion fails
+                    else:
+                        # No CJK font available - this will likely show dots but won't crash
+                        print(f"Warning: No CJK font available for page {page_number}, characters may not render correctly")
+                        new_page.insert_textbox(rect, translated_text, fontsize=font_size, align=0, color=rgb_color)
+                except Exception as e:
+                    # Last resort: use basic insert_text
                     try:
-                        link_dict = {
-                            "kind": link_info.get("kind", 1),
-                            "from": rect
-                        }
-                        if link_info.get("uri"):
-                            link_dict["uri"] = link_info["uri"]
-                            link_dict["kind"] = 1
-                        elif link_info.get("page", -1) >= 0:
-                            link_dict["page"] = link_info["page"]
-                            link_dict["kind"] = 2
-                            if link_info.get("to"):
-                                link_dict["to"] = link_info["to"]
-                        new_page.insert_link(link_dict)
-                    except Exception:
-                        pass  # Silently fail if link insertion fails
-            except Exception:
-                # Fallback to simple text insertion if HTML insertion fails
-                new_page.insert_text(rect.tl, translated_text, fontsize=font_size)
+                        new_page.insert_text(rect.tl, translated_text, fontsize=font_size)
+                    except Exception as final_error:
+                        # Log error but continue processing
+                        print(f"Failed to insert CJK text on page {page_number}: {final_error}")
+                        pass
+            else:
+                # For non-CJK text, use HTML insertion for better formatting
+                # Escape HTML content to prevent issues with special characters
+                escaped_text = html.escape(translated_text)
+
+                # Handle links
+                if link_info:
+                    if link_info.get("uri"):
+                        escaped_text = f'<a href="{html.escape(link_info["uri"])}" style="color: {color}; text-decoration: underline;">{escaped_text}</a>'
+                    elif link_info.get("page", -1) >= 0:
+                        page_num = link_info["page"]
+                        escaped_text = f'<a href="#page{page_num}" style="color: {color}; text-decoration: underline;">{escaped_text}</a>'
+
+                # CSS for styling
+                css = f"""
+                * {{
+                    color: {color};
+                    font-weight: {font_weight};
+                    font-size: {font_size}px;
+                    line-height: 1.2;
+                    word-wrap: break-word;
+                    overflow-wrap: break-word;
+                    width: 100%;
+                    box-sizing: border-box;
+                    margin: 0;
+                    padding: 0;
+                }}
+                a {{
+                    text-decoration: underline;
+                }}
+                """
+
+                # HTML content with inline styles
+                html_content = f'<div style="font-size: {font_size}px; color: {color}; font-weight: {font_weight}; line-height: 1.2; word-wrap: break-word;">{escaped_text}</div>'
+
+                try:
+                    # Use HTML insertion for better formatting and automatic wrapping
+                    new_page.insert_htmlbox(rect, html_content, css=css, rotate=0)
+
+                    # Add link annotation if needed
+                    if link_info:
+                        try:
+                            link_dict = {
+                                "kind": link_info.get("kind", 1),
+                                "from": rect
+                            }
+                            if link_info.get("uri"):
+                                link_dict["uri"] = link_info["uri"]
+                                link_dict["kind"] = 1
+                            elif link_info.get("page", -1) >= 0:
+                                link_dict["page"] = link_info["page"]
+                                link_dict["kind"] = 2
+                                if link_info.get("to"):
+                                    link_dict["to"] = link_info["to"]
+                            new_page.insert_link(link_dict)
+                        except Exception:
+                            pass  # Silently fail if link insertion fails
+                except Exception as e:
+                    # Fallback to text insertion
+                    try:
+                        rgb_color = _hex_to_rgb(color)
+                        new_page.insert_textbox(rect, translated_text, fontsize=font_size, align=0, color=rgb_color)
+                    except Exception as fallback_error:
+                        # Last resort: use basic insert_text
+                        try:
+                            new_page.insert_text(rect.tl, translated_text, fontsize=font_size)
+                        except Exception as final_error:
+                            # Log error but continue processing
+                            print(f"Failed to insert text on page {page_number}: {final_error}")
+                            pass
 
     pdf_bytes = translated_doc.tobytes()
     translated_doc.close()
@@ -599,6 +954,55 @@ def translate_scanned_pdf_with_layout(
     # Create translated document
     translated_doc = fitz.open()
     translated_doc.insert_pdf(doc)
+    
+    # Pre-load CJK font path once for the entire document (more efficient for large documents)
+    cjk_font_path = None
+    cjk_font_name = None
+    # Check if any translated text contains CJK characters
+    sample_text = "".join(translated_blocks[:min(100, len(translated_blocks))])
+    if _contains_cjk_characters(sample_text):
+        # Get font file path instead of font object
+        backend_dir = Path(__file__).parent.parent
+        fonts_dir = backend_dir / "fonts"
+        
+        language_font_map = {
+            "ja": "NotoSerifCJKjp-Regular.otf",
+            "jp": "NotoSerifCJKjp-Regular.otf",
+            "jpn": "NotoSerifCJKjp-Regular.otf",
+            "zh": "NotoSerifCJKsc-Regular.otf",
+            "zh-cn": "NotoSerifCJKsc-Regular.otf",
+            "zh-hans": "NotoSerifCJKsc-Regular.otf",
+            "zh-tw": "NotoSerifCJKtc-Regular.otf",
+            "zh-hant": "NotoSerifCJKtc-Regular.otf",
+            "zh-hk": "NotoSerifCJKhk-Regular.otf",
+            "ko": "NotoSerifCJKkr-Regular.otf",
+            "kr": "NotoSerifCJKkr-Regular.otf",
+        }
+        
+        target_language_lower = target_language.lower().strip()
+        font_filename = language_font_map.get(target_language_lower)
+        
+        if font_filename:
+            font_path = fonts_dir / font_filename
+            if font_path.exists():
+                cjk_font_path = str(font_path.resolve())
+                cjk_font_name = "CJKFont"  # Name to use when embedding
+                print(f"Pre-loaded CJK font path for language {target_language}: {cjk_font_path}")
+        
+        if not cjk_font_path:
+            # Try any available CJK font
+            for font_file in ["NotoSerifCJKjp-Regular.otf", "NotoSerifCJKsc-Regular.otf", 
+                             "NotoSerifCJKtc-Regular.otf", "NotoSerifCJKkr-Regular.otf"]:
+                font_path = fonts_dir / font_file
+                if font_path.exists():
+                    cjk_font_path = str(font_path.resolve())
+                    cjk_font_name = "CJKFont"
+                    print(f"Using available CJK font: {cjk_font_path}")
+                    break
+        
+        if not cjk_font_path:
+            print(f"WARNING: Could not find CJK font file for language {target_language}")
+    
     translated_text_parts: List[str] = []
     original_text_parts: List[str] = []
     block_index = 0
@@ -675,31 +1079,154 @@ def translate_scanned_pdf_with_layout(
             rect = fitz.Rect(*enlarged_coords)
             font_weight = "bold" if is_bold else "normal"
             
-            # CSS for styling
-            css = f"""
-            * {{
-                color: {color};
-                font-weight: {font_weight};
-                font-size: {font_size}px;
-                line-height: 1.2;
-                word-wrap: break-word;
-                overflow-wrap: break-word;
-                width: 100%;
-                box-sizing: border-box;
-                margin: 0;
-                padding: 0;
-            }}
-            """
-            
-            # HTML content with inline styles
-            html_content = f'<div style="font-size: {font_size}px; color: {color}; font-weight: {font_weight}; line-height: 1.2; word-wrap: break-word;">{translated_text}</div>'
-            
-            try:
-                # Use HTML insertion for better formatting and automatic wrapping
-                new_page.insert_htmlbox(rect, html_content, css=css, rotate=0)
-            except Exception:
-                # Fallback to simple text insertion if HTML insertion fails
-                new_page.insert_text(rect.tl, translated_text, fontsize=font_size)
+            # Check if text contains CJK characters
+            has_cjk = _contains_cjk_characters(translated_text)
+
+            # For CJK characters, embed font and use textbox insertion
+            if has_cjk:
+                try:
+                    # Convert hex color to RGB tuple for PyMuPDF
+                    rgb_color = _hex_to_rgb(color)
+                    
+                    # Embed font in page if we have a font file
+                    font_name_to_use = None
+                    if cjk_font_path and cjk_font_name:
+                        try:
+                            # Embed the font in the page (only needs to be done once per page)
+                            if not hasattr(new_page, '_cjk_font_embedded'):
+                                print(f"Embedding CJK font '{cjk_font_name}' from '{cjk_font_path}' on page {page_number}")
+                                new_page.insert_font(fontname=cjk_font_name, fontfile=cjk_font_path)
+                                new_page._cjk_font_embedded = True
+                                print(f"Successfully embedded CJK font on page {page_number}")
+                                # Test that the font works by inserting a test character
+                                try:
+                                    test_rect = fitz.Rect(10, 10, 50, 30)
+                                    test_result = new_page.insert_textbox(test_rect, "测试", fontsize=12, fontname=cjk_font_name, align=0)
+                                    if test_result > 0:
+                                        print(f"Font test successful: {test_result} chars fitted")
+                                    else:
+                                        print(f"WARNING: Font test failed - {test_result} chars fitted")
+                                except Exception as test_error:
+                                    print(f"Font test insertion failed: {test_error}")
+                            # Always set font_name_to_use after embedding (for all blocks on this page)
+                            font_name_to_use = cjk_font_name
+                            print(f"DEBUG: Set font_name_to_use='{font_name_to_use}' for block on page {page_number}")
+                        except Exception as embed_error:
+                            print(f"Failed to embed CJK font on page {page_number}: {embed_error}")
+                            import traceback
+                            traceback.print_exc()
+                            # Try built-in CJK fonts as fallback
+                            for builtin_font in ["japan", "japan-s", "china-s", "china-t", "korea", "cjk"]:
+                                try:
+                                    font_name_to_use = builtin_font
+                                    print(f"Using built-in font '{builtin_font}' as fallback")
+                                    break
+                                except:
+                                    continue
+                    else:
+                        print(f"DEBUG: cjk_font_path={cjk_font_path}, cjk_font_name={cjk_font_name} on page {page_number}")
+                    
+                    if font_name_to_use:
+                        # Use textbox insertion with the embedded font name
+                        try:
+                            # Validate rect before insertion
+                            page_rect = new_page.rect
+                            if rect.width <= 0 or rect.height <= 0:
+                                print(f"Invalid rect for CJK text: {rect}, using insert_text instead")
+                                new_page.insert_text(rect.tl, translated_text, fontsize=font_size, fontname=font_name_to_use, color=rgb_color)
+                            elif rect.x0 < 0 or rect.y0 < 0 or rect.x1 > page_rect.width or rect.y1 > page_rect.height:
+                                print(f"Rect outside page bounds: {rect}, page_rect={page_rect}, clamping and using insert_text")
+                                # Clamp to page bounds
+                                clamped_point = fitz.Point(
+                                    max(0, min(rect.x0, page_rect.width - 10)),
+                                    max(0, min(rect.y0, page_rect.height - 10))
+                                )
+                                new_page.insert_text(clamped_point, translated_text, fontsize=font_size, fontname=font_name_to_use, color=rgb_color)
+                            else:
+                                # insert_textbox returns the number of characters that fit
+                                chars_fitted = new_page.insert_textbox(rect, translated_text, fontsize=font_size, fontname=font_name_to_use, align=0, color=rgb_color)
+                                if chars_fitted <= 0:
+                                    print(f"Textbox insertion returned {chars_fitted} chars fitted, trying insert_text instead. rect={rect}, text_len={len(translated_text)}")
+                                    new_page.insert_text(rect.tl, translated_text, fontsize=font_size, fontname=font_name_to_use, color=rgb_color)
+                                else:
+                                    print(f"Successfully inserted CJK text with font '{font_name_to_use}' ({chars_fitted}/{len(translated_text)} chars fitted, rect={rect})")
+                        except Exception as textbox_error:
+                            print(f"Textbox insertion failed for CJK text (len={len(translated_text)}): {textbox_error}")
+                            # If textbox fails (e.g., text too long), try insert_text
+                            try:
+                                new_page.insert_text(rect.tl, translated_text, fontsize=font_size, fontname=font_name_to_use, color=rgb_color)
+                                print(f"Successfully inserted CJK text with insert_text using font '{font_name_to_use}'")
+                            except Exception as text_error:
+                                print(f"Font insertion failed for CJK text: {text_error}")
+                                import traceback
+                                traceback.print_exc()
+                                # Last resort: insert without font (will show dots)
+                                try:
+                                    new_page.insert_text(rect.tl, translated_text, fontsize=font_size)
+                                    print(f"Inserted CJK text without font (will show dots)")
+                                except Exception as final_error:
+                                    print(f"All insertion methods failed: {final_error}")
+                                    import traceback
+                                    traceback.print_exc()
+                    else:
+                        # No CJK font available - this will likely show dots but won't crash
+                        print(f"Warning: No CJK font available for page {page_number}, characters may not render correctly. cjk_font_path={cjk_font_path}, cjk_font_name={cjk_font_name}")
+                        try:
+                            new_page.insert_textbox(rect, translated_text, fontsize=font_size, align=0, color=rgb_color)
+                        except Exception as e:
+                            print(f"Textbox insertion failed without font: {e}")
+                            try:
+                                new_page.insert_text(rect.tl, translated_text, fontsize=font_size)
+                            except Exception as e2:
+                                print(f"All insertion methods failed: {e2}")
+                except Exception as e:
+                    # Last resort: use basic insert_text
+                    try:
+                        new_page.insert_text(rect.tl, translated_text, fontsize=font_size)
+                    except Exception as final_error:
+                        # Log error but continue processing
+                        print(f"Failed to insert CJK text on page {page_number}: {final_error}")
+                        pass
+            else:
+                # For non-CJK text, use HTML insertion for better formatting
+                # Escape HTML content to prevent issues with special characters
+                escaped_text = html.escape(translated_text)
+                
+                # CSS for styling
+                css = f"""
+                * {{
+                    color: {color};
+                    font-weight: {font_weight};
+                    font-size: {font_size}px;
+                    line-height: 1.2;
+                    word-wrap: break-word;
+                    overflow-wrap: break-word;
+                    width: 100%;
+                    box-sizing: border-box;
+                    margin: 0;
+                    padding: 0;
+                }}
+                """
+                
+                # HTML content with inline styles
+                html_content = f'<div style="font-size: {font_size}px; color: {color}; font-weight: {font_weight}; line-height: 1.2; word-wrap: break-word;">{escaped_text}</div>'
+                
+                try:
+                    # Use HTML insertion for better formatting and automatic wrapping
+                    new_page.insert_htmlbox(rect, html_content, css=css, rotate=0)
+                except Exception as e:
+                    # Fallback to text insertion
+                    try:
+                        rgb_color = _hex_to_rgb(color)
+                        new_page.insert_textbox(rect, translated_text, fontsize=font_size, align=0, color=rgb_color)
+                    except Exception as fallback_error:
+                        # Last resort: use basic insert_text
+                        try:
+                            new_page.insert_text(rect.tl, translated_text, fontsize=font_size)
+                        except Exception as final_error:
+                            # Log error but continue processing
+                            print(f"Failed to insert text on page {page_number}: {final_error}")
+                            pass
     
     pdf_bytes = translated_doc.tobytes()
     translated_doc.close()
