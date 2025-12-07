@@ -17,12 +17,14 @@ class ChatStartRequest(BaseModel):
     target_language: Optional[str] = None
     source_language: Optional[str] = None
     use_source_language: bool = False  # Toggle: if True, chat in source language, else target language
+    provider: str = "ollama"  # "ollama" or "gemini"
 
 
 class ChatMessageRequest(BaseModel):
     session_id: str
     message: str
     stream: bool = False
+    provider: Optional[str] = None  # Optional override, uses session provider if not provided
 
 
 class ChatMessage(BaseModel):
@@ -41,6 +43,7 @@ class ChatSession(BaseModel):
     target_language: Optional[str] = None
     source_language: Optional[str] = None
     chat_language: Optional[str] = None  # The language the chatbot should respond in
+    provider: str = "ollama"  # "ollama" or "gemini"
 
 
 class ChatResponse(BaseModel):
@@ -55,4 +58,5 @@ class ChatStartResponse(BaseModel):
     available_models: List[Dict[str, Any]]
     recommended_model: str
     pdf_info: Dict[str, Any]
+    provider: str = "ollama"  # "ollama" or "gemini"
 

@@ -10,9 +10,11 @@ Translate PDF documents while preserving formatting. Supports both digital and s
   - Windows: Download from [UB-Mannheim/tesseract](https://github.com/UB-Mannheim/tesseract/wiki)
   - macOS: `brew install tesseract`
   - Linux: `sudo apt-get install tesseract-ocr`
-- **Ollama** (for chatbot feature)
+- **Ollama** (for chatbot feature - optional if using Gemini)
   - Download from [ollama.ai](https://ollama.ai)
   - Recommended model: `ollama pull llama3.1:8b`
+- **Google Gemini API Key** (optional, for cloud-based chatbot)
+  - Get from [Google AI Studio](https://makersuite.google.com/app/apikey)
 - **Docker** (optional, only for LibreTranslate)
 
 ## Quick Start
@@ -44,6 +46,7 @@ AZURE_TRANSLATOR_REGION=your_region_here
 LIBRETRANSLATE_URL=http://localhost:5000
 OLLAMA_BASE_URL=http://localhost:11434
 DEFAULT_LLM_MODEL=llama3.1:8b
+GEMINI_API_KEY=your_gemini_api_key_here  # Optional, only needed for Gemini provider
 ```
 
 ### 2. Frontend Setup
@@ -100,16 +103,39 @@ Open `http://localhost:3000` in your browser.
 
 ## Chatbot Feature
 
-The application includes an AI chatbot powered by Ollama that allows you to:
+The application includes an AI chatbot that supports two providers: **Ollama** (local, free) and **Google Gemini** (cloud, requires API key). The chatbot allows you to:
 - Ask questions about your PDF documents
 - Get summaries and extract information
 - Chat in the translated PDF's language
 - Use full PDF context (text + images)
 
+### Option 1: Ollama (Local, Free)
+
 **Setup:**
 1. Install [Ollama](https://ollama.ai)
 2. Pull the recommended model: `ollama pull llama3.1:8b`
 3. Ensure Ollama is running (usually runs as a background service)
-4. Access the chatbot from the results page or via the "Chat" link in the navbar
+4. Set `provider=ollama` when starting a chat session
 
-The chatbot automatically uses visual LLMs to analyze both text content and page images for comprehensive document understanding.
+### Option 2: Google Gemini (Cloud)
+
+**Setup:**
+1. Get a Gemini API key from [Google AI Studio](https://makersuite.google.com/app/apikey)
+2. Add to your `backend/.env` file:
+   ```env
+   GEMINI_API_KEY=your_gemini_api_key_here
+   ```
+3. Install the dependency: `pip install google-generativeai`
+4. Set `provider=gemini` when starting a chat session
+
+**Default Models:**
+- Ollama: `llama3.1:8b` (text) or `llava` (visual)
+- Gemini: `gemini-1.5-pro` (supports both text and visual)
+
+You can override these by setting environment variables:
+- `DEFAULT_LLM_MODEL` (Ollama text model)
+- `DEFAULT_VISUAL_LLM_MODEL` (Ollama visual model)
+- `DEFAULT_GEMINI_MODEL` (Gemini model)
+- `DEFAULT_GEMINI_VISUAL_MODEL` (Gemini visual model)
+
+The chatbot automatically uses visual capabilities to analyze both text content and page images for comprehensive document understanding.

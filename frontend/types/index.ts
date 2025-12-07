@@ -21,6 +21,7 @@ export type ChatSession = {
     kind: "scanned" | "digital";
     has_text: boolean;
   };
+  provider?: string;
 };
 
 export type ChatStartRequest = {
@@ -47,10 +48,15 @@ export type ChatStartResponse = {
   session_id: string;
   available_models: Array<{
     name: string;
-    model: string;
-    size: number;
-    digest: string;
-    modified_at: string;
+    model?: string;
+    size?: number;
+    digest?: string;
+    modified_at?: string;
+    display_name?: string;
+    description?: string;
+    input_token_limit?: number;
+    output_token_limit?: number;
+    [key: string]: any; // Allow additional fields for different providers
   }>;
   recommended_model: string;
   pdf_info: {
@@ -58,4 +64,5 @@ export type ChatStartResponse = {
     kind: "scanned" | "digital";
     has_text: boolean;
   };
+  provider?: string;
 };

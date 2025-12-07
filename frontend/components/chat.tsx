@@ -42,6 +42,7 @@ export default function Chat({
     Array<{ name: string; model: string }>
   >([]);
   const [selectedModel, setSelectedModel] = useState<string>("");
+  const [selectedProvider, setSelectedProvider] = useState<string>("ollama");
   const [useVisual, setUseVisual] = useState(false);
   const [useSourceLanguage, setUseSourceLanguage] = useState<boolean>(false);
   const [pdfBase64State, setPdfBase64State] = useState<string>(pdfBase64);
@@ -66,13 +67,13 @@ export default function Chat({
     if (pdfBase64State) {
       initializeChat();
     }
-  }, [pdfBase64State, contextType, useSourceLanguage]);
+  }, [pdfBase64State, contextType, useSourceLanguage, selectedProvider]);
 
   const initializeChat = async () => {
     setIsInitializing(true);
     try {
-      // Get available models
-      const models = await getAvailableModels();
+      // Get available models for selected provider
+      const models = await getAvailableModels(selectedProvider);
       setAvailableModels(models);
 
       // Start chat session
@@ -83,7 +84,8 @@ export default function Chat({
         useVisual,
         targetLanguage,
         sourceLanguage,
-        useSourceLanguage
+        useSourceLanguage,
+        selectedProvider
       );
 
       setSessionId(response.session_id);
@@ -107,7 +109,7 @@ export default function Chat({
       const errorMessage =
         error instanceof Error
           ? error.message
-          : "Failed to initialize chat. Please ensure Ollama is running.";
+          : `Failed to initialize chat with ${selectedProvider === "gemini" ? "Gemini" : "Ollama"}. Please ensure the service is configured and running.`;
       if (onError) {
         onError(errorMessage);
       } else {
@@ -212,7 +214,8 @@ export default function Chat({
         useVisual,
         targetLanguage,
         sourceLanguage,
-        useSourceLanguage
+        useSourceLanguage,
+        selectedProvider
       );
       
       setSessionId(response.session_id);
@@ -229,6 +232,17 @@ export default function Chat({
     } finally {
       setIsInitializing(false);
     }
+  };
+
+  const handleProviderChange = async (newProvider: string) => {
+    if (newProvider === selectedProvider) {
+      return;
+    }
+    
+    setSelectedProvider(newProvider);
+    setSelectedModel(""); // Reset model selection
+    setMessages([]); // Clear messages when changing provider
+    // Chat will reinitialize automatically via useEffect when selectedProvider changes
   };
 
   if (isInitializing) {
@@ -281,6 +295,27 @@ export default function Chat({
                   </span>
                 </div>
               )}
+              {/* Provider Selector */}
+              <Select
+                size="sm"
+                selectedKeys={selectedProvider ? [selectedProvider] : []}
+                onSelectionChange={(keys) => {
+                  const selected = Array.from(keys)[0] as string;
+                  if (selected) {
+                    handleProviderChange(selected);
+                  }
+                }}
+                className="w-32"
+                placeholder="Provider"
+                isDisabled={isLoading || isInitializing}
+              >
+                <SelectItem key="ollama" value="ollama">
+                  Ollama
+                </SelectItem>
+                <SelectItem key="gemini" value="gemini">
+                  Gemini
+                </SelectItem>
+              </Select>
               {/* Model Selector */}
               <Select
                 size="sm"
@@ -293,13 +328,17 @@ export default function Chat({
                 }}
                 className="w-48"
                 placeholder="Select model"
-                isDisabled={isLoading || isInitializing}
+                isDisabled={isLoading || isInitializing || availableModels.length === 0}
               >
-                {availableModels.map((model) => (
-                  <SelectItem key={model.name} value={model.name}>
-                    {model.name}
-                  </SelectItem>
-                ))}
+                {availableModels.map((model) => {
+                  // Use display_name for Gemini, name for Ollama
+                  const displayName = (model as any).display_name || model.name;
+                  return (
+                    <SelectItem key={model.name} value={model.name}>
+                      {displayName}
+                    </SelectItem>
+                  );
+                })}
               </Select>
             </div>
           </div>
