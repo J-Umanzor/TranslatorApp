@@ -1387,11 +1387,11 @@ pdf_context_service = PDFContextService()
 
 
 @app.get("/chat/models")
-async def get_chat_models():
-    """Get list of available Ollama models."""
+async def get_chat_models(provider: str = "ollama"):
+    """Get list of available models for the specified provider."""
     try:
-        models = chat_service.get_available_models()
-        return {"models": models}
+        models = chat_service.get_available_models(provider=provider)
+        return {"models": models, "provider": provider}
     except HTTPException:
         raise
     except Exception as e:
@@ -1410,7 +1410,8 @@ async def start_chat(
     use_visual: bool = Form(False),
     target_language: Optional[str] = Form(None),
     source_language: Optional[str] = Form(None),
-    use_source_language: bool = Form(False)
+    use_source_language: bool = Form(False),
+    provider: str = Form("ollama")
 ):
     """
     Initialize a new chat session with PDF context.
@@ -1473,7 +1474,7 @@ async def start_chat(
     # Always use visual model to support both text and images
     # This allows us to provide full context (text + images) for all PDFs
     use_visual = True
-    recommended_model = chat_service.get_recommended_model(is_visual=True)
+    recommended_model = chat_service.get_recommended_model(is_visual=True, provider=provider)
     
     # Use provided model or recommended
     selected_model = model or recommended_model
@@ -1508,7 +1509,8 @@ async def start_chat(
         pdf_info=pdf_info,
         target_language=detected_target_language,
         source_language=detected_source_language,
-        chat_language=chat_language
+        chat_language=chat_language,
+        provider=provider
     )
     
     # Create friendly greeting message
@@ -1549,15 +1551,16 @@ async def start_chat(
     
     # Get available models
     try:
-        available_models = chat_service.get_available_models()
+        available_models = chat_service.get_available_models(provider=provider)
     except:
         available_models = []
     
     return ChatStartResponse(
         session_id=session_id,
         available_models=available_models,
-        recommended_model=recommended_model,
-        pdf_info=pdf_info
+        recommended_model=selected_model,
+        pdf_info=pdf_info,
+        provider=provider
     )
 
 
@@ -1657,20 +1660,25 @@ Answer questions based on this content, and reference specific information from 
             "content": user_content
         })
         
+        # Get provider from request or use session provider
+        provider = request.provider if request.provider else session.provider
+        
         # Get response using visual context (which includes both text and images)
         if request.stream:
             response_text = chat_service.chat_with_visual_context(
                 messages=messages,
                 images=images,
                 model=session.model,
-                stream=False
+                stream=False,
+                provider=provider
             )
         else:
             response_text = chat_service.chat_with_visual_context(
                 messages=messages,
                 images=images,
                 model=session.model,
-                stream=False
+                stream=False,
+                provider=provider
             )
         
         # Add assistant response to history

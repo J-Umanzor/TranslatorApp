@@ -8,9 +8,9 @@ import type {
 
 const API_BASE_URL = "http://127.0.0.1:8000";
 
-export async function getAvailableModels() {
+export async function getAvailableModels(provider: string = "ollama") {
   try {
-    const response = await fetch(`${API_BASE_URL}/chat/models`);
+    const response = await fetch(`${API_BASE_URL}/chat/models?provider=${provider}`);
     if (!response.ok) {
       throw new Error("Failed to fetch models");
     }
@@ -29,7 +29,8 @@ export async function startChat(
   useVisual: boolean = false,
   targetLanguage?: string,
   sourceLanguage?: string,
-  useSourceLanguage: boolean = false
+  useSourceLanguage: boolean = false,
+  provider: string = "ollama"
 ): Promise<ChatStartResponse> {
   const formData = new FormData();
   
@@ -63,6 +64,7 @@ export async function startChat(
     formData.append("source_language", sourceLanguage);
   }
   formData.append("use_source_language", useSourceLanguage.toString());
+  formData.append("provider", provider);
 
   const response = await fetch(`${API_BASE_URL}/chat/start`, {
     method: "POST",
