@@ -478,12 +478,13 @@ class ChatService:
             
             # Use system instruction if available (for newer Gemini models)
             system_instruction_config = None
+            system_instruction_used = False
             if system_instruction:
                 try:
                     # Try to use system instruction (supported in gemini-1.5-pro and later)
                     system_instruction_config = system_instruction
                 except:
-                    # Fallback: prepend system instruction to first user message
+                    # Fallback: prepend system instruction to first user message in history
                     if gemini_history and gemini_history[0]["role"] == "user":
                         gemini_history[0]["parts"][0] = f"{system_instruction}\n\n{gemini_history[0]['parts'][0]}"
             
@@ -495,11 +496,14 @@ class ChatService:
                         history=gemini_history,
                         system_instruction=system_instruction_config
                     )
+                    system_instruction_used = True
                 except:
                     # Fallback if system_instruction not supported
                     chat = gemini_model.start_chat(history=gemini_history)
+                    system_instruction_used = False
             else:
                 chat = gemini_model.start_chat(history=gemini_history)
+                system_instruction_used = False
             
             # Send current message (should always be set if we have messages)
             if not current_message_parts:
@@ -509,6 +513,14 @@ class ChatService:
                     current_message_parts = [last_msg.get("content", "")]
                 else:
                     current_message_parts = ["Hello"]
+            
+            # If system instruction wasn't used (either not supported or not provided), prepend it to current message
+            # This ensures language requirements are always enforced, especially on first message
+            if not system_instruction_used and system_instruction and current_message_parts:
+                if isinstance(current_message_parts[0], str):
+                    # Check if language instruction is already in the message
+                    if "CRITICAL LANGUAGE REQUIREMENT" not in current_message_parts[0] and "MUST respond ONLY" not in current_message_parts[0]:
+                        current_message_parts[0] = f"{system_instruction}\n\n{current_message_parts[0]}"
             
             message_to_send = current_message_parts
             response = chat.send_message(
