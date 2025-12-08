@@ -42,15 +42,38 @@ export default function Home() {
   const [isTranslating, setIsTranslating] = useState(false);
   const [translateError, setTranslateError] = useState<string | null>(null);
   const [translatorProvider, setTranslatorProvider] = useState<string>("azure");
-  const [originalPdfDataUrl, setOriginalPdfDataUrl] = useState<string | null>(null);
+  const [originalPdfBlobUrl, setOriginalPdfBlobUrl] = useState<string | null>(null);
+  const [originalPdfBase64, setOriginalPdfBase64] = useState<string | null>(null);
 
-  // Helper function to convert File to data URL for PDF display
-  const createPdfDataUrl = (file: File): Promise<string> => {
+  // Helper function to convert File to blob URL for PDF display
+  const createPdfBlobUrl = async (file: File): Promise<{ blobUrl: string; base64: string }> => {
     return new Promise((resolve, reject) => {
       const reader = new FileReader();
       reader.onload = (e) => {
         if (e.target?.result) {
-          resolve(e.target.result as string);
+          const dataUrl = e.target.result as string;
+          // Extract base64 from data URL
+          const base64Match = dataUrl.match(/base64,(.+)$/);
+          if (!base64Match) {
+            reject(new Error("Failed to extract base64 from file"));
+            return;
+          }
+          const base64 = base64Match[1];
+          
+          // Convert base64 to blob and create blob URL
+          try {
+            const byteCharacters = atob(base64);
+            const byteNumbers = new Array(byteCharacters.length);
+            for (let i = 0; i < byteCharacters.length; i += 1) {
+              byteNumbers[i] = byteCharacters.charCodeAt(i);
+            }
+            const byteArray = new Uint8Array(byteNumbers);
+            const blob = new Blob([byteArray], { type: "application/pdf" });
+            const blobUrl = URL.createObjectURL(blob);
+            resolve({ blobUrl, base64 });
+          } catch (error) {
+            reject(new Error("Failed to create blob URL"));
+          }
         } else {
           reject(new Error("Failed to read file"));
         }
@@ -62,6 +85,11 @@ export default function Home() {
 
   const handleFileSelect = async (file: File) => {
     if (file.type === "application/pdf") {
+      // Revoke previous blob URL if it exists
+      if (originalPdfBlobUrl) {
+        URL.revokeObjectURL(originalPdfBlobUrl);
+      }
+      
       setSelectedFile(file);
       setSourceLanguage(null);
       setDetectionError(null);
@@ -69,13 +97,15 @@ export default function Home() {
       setTextPreview("");
       setTranslateError(null);
       
-      // Create data URL for PDF display
+      // Create blob URL for PDF display
       try {
-        const dataUrl = await createPdfDataUrl(file);
-        setOriginalPdfDataUrl(dataUrl);
+        const { blobUrl, base64 } = await createPdfBlobUrl(file);
+        setOriginalPdfBlobUrl(blobUrl);
+        setOriginalPdfBase64(base64);
       } catch (error) {
-        console.error("Failed to create PDF data URL", error);
-        setOriginalPdfDataUrl(null);
+        console.error("Failed to create PDF blob URL", error);
+        setOriginalPdfBlobUrl(null);
+        setOriginalPdfBase64(null);
       }
     } else {
       alert("Please select a PDF file");
@@ -109,6 +139,11 @@ export default function Home() {
   };
 
   const removeFile = () => {
+    // Revoke blob URL if it exists
+    if (originalPdfBlobUrl) {
+      URL.revokeObjectURL(originalPdfBlobUrl);
+    }
+    
     setSelectedFile(null);
     setSourceLanguage(null);
     setDetectionError(null);
@@ -117,7 +152,8 @@ export default function Home() {
     setIsDetectingLanguage(false);
     setTranslateError(null);
     setIsTranslating(false);
-    setOriginalPdfDataUrl(null);
+    setOriginalPdfBlobUrl(null);
+    setOriginalPdfBase64(null);
   };
 
   const handleTranslate = async () => {
@@ -155,40 +191,27 @@ export default function Home() {
             target_language: data.target_language,
           }));
           
-          // Store both original and translated PDFs in IndexedDB
-          const dbRequest = indexedDB.open("TranslationDB", 1);
-          
-          dbRequest.onerror = () => {
-            reject(new Error("Failed to open IndexedDB"));
-          };
-          
-          dbRequest.onsuccess = () => {
-            const db = dbRequest.result;
-            const transaction = db.transaction(["pdfs"], "readwrite");
-            const store = transaction.objectStore("pdfs");
+            // Store both original and translated PDFs in IndexedDB
+            const dbRequest = indexedDB.open("TranslationDB", 1);
             
-            // Store both PDFs
-            const requests: Promise<void>[] = [];
+            dbRequest.onerror = () => {
+              reject(new Error("Failed to open IndexedDB"));
+            };
             
-            // Store original PDF if available
-            if (originalPdfDataUrl) {
-              // Extract base64 from data URL if it's a data URL
-              let originalBase64: string | null = null;
-              if (originalPdfDataUrl.startsWith("data:")) {
-                const match = originalPdfDataUrl.match(/base64,(.+)$/);
-                if (match && match[1]) {
-                  originalBase64 = match[1];
-                  console.log("Extracted original PDF base64, length:", originalBase64.length);
-                } else {
-                  console.warn("Failed to extract base64 from original PDF data URL");
-                }
-              }
+            dbRequest.onsuccess = () => {
+              const db = dbRequest.result;
+              const transaction = db.transaction(["pdfs"], "readwrite");
+              const store = transaction.objectStore("pdfs");
               
-              if (originalBase64) {
+              // Store both PDFs
+              const requests: Promise<void>[] = [];
+              
+              // Store original PDF if available
+              if (originalPdfBase64) {
                 const originalRequest = new Promise<void>((resolveOriginal, rejectOriginal) => {
                   const putRequest = store.put({
                     id: "originalPdf",
-                    base64: originalBase64,
+                    base64: originalPdfBase64,
                   });
                   
                   putRequest.onsuccess = () => {
@@ -202,18 +225,8 @@ export default function Home() {
                 });
                 requests.push(originalRequest);
               } else {
-                // If it's not a data URL or extraction failed, try to store it as-is in sessionStorage
-                console.warn("Original PDF is not a data URL or extraction failed, trying sessionStorage");
-                try {
-                  sessionStorage.setItem("originalPdfDataUrl", originalPdfDataUrl);
-                  console.log("Original PDF stored in sessionStorage as fallback");
-                } catch (e) {
-                  console.error("Failed to store original PDF in sessionStorage:", e);
-                }
+                console.warn("No original PDF base64 available to store");
               }
-            } else {
-              console.warn("No original PDF data URL available to store");
-            }
             
             // Store translated PDF if available
             if (data.translated_pdf_base64) {
@@ -328,6 +341,15 @@ export default function Home() {
       cancelled = true;
     };
   }, [selectedFile]);
+
+  // Cleanup blob URL on unmount
+  useEffect(() => {
+    return () => {
+      if (originalPdfBlobUrl) {
+        URL.revokeObjectURL(originalPdfBlobUrl);
+      }
+    };
+  }, [originalPdfBlobUrl]);
 
   return (
     <section className="flex flex-col items-center justify-center gap-8 py-8 md:py-10">
@@ -498,17 +520,20 @@ export default function Home() {
       </Card>
 
       {/* Original PDF Viewer */}
-      {originalPdfDataUrl && (
+      {originalPdfBlobUrl && (
         <Card className="w-full max-w-6xl">
           <CardBody className="p-6">
             <h3 className="text-lg font-semibold mb-4">Original PDF Preview</h3>
             <div className="border border-default-200 rounded-lg overflow-hidden shadow-lg">
-              <embed
-                src={originalPdfDataUrl}
-                type="application/pdf"
+              <iframe
+                src={originalPdfBlobUrl}
                 className="w-full"
                 style={{ minHeight: "600px", height: "80vh" }}
                 title="Original PDF"
+                onLoad={() => console.log("Original PDF iframe loaded successfully")}
+                onError={(e) => {
+                  console.error("Original PDF iframe error:", e);
+                }}
               />
             </div>
           </CardBody>
