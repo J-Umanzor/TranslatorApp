@@ -1620,14 +1620,16 @@ async def send_chat_message(request: ChatMessageRequest):
         
         # Build language instruction - enforce responding ONLY in the selected chat language
         chat_lang = session.chat_language or session.target_language or "en"
-        # Make the language instruction very explicit and strict
-        language_instruction = f"\n\nIMPORTANT: You MUST respond ONLY in {chat_lang}. Do not use any other language. All your responses must be in {chat_lang}."
+        # Make the language instruction very explicit and strict - put it at the beginning
+        language_instruction = f"CRITICAL LANGUAGE REQUIREMENT: You MUST respond ONLY in {chat_lang}. Never use English or any other language. Every single response must be entirely in {chat_lang}. This is non-negotiable."
         
         # Prepare system prompt with both text and images
         # Limit text to 500k chars for prompt size
         text_for_prompt = pdf_text[:500000] if len(pdf_text) > 500000 else pdf_text
         
-        system_content = f"""You are a helpful assistant that can analyze PDF documents. 
+        system_content = f"""{language_instruction}
+
+You are a helpful assistant that can analyze PDF documents. 
 You have access to both the extracted text content and visual images of the PDF pages.
 The extracted text from the PDF is:
 {text_for_prompt}
@@ -1635,7 +1637,7 @@ The extracted text from the PDF is:
 You will also receive images of the PDF pages. Use both the text content and visual information to provide comprehensive answers.
 Answer questions based on this content, and reference specific information from the document when possible.
 
-{language_instruction}"""
+REMEMBER: Always respond in {chat_lang} only. Never use English or any other language."""
         
         # Prepare messages for visual chat with text context
         messages = [
@@ -1653,8 +1655,8 @@ Answer questions based on this content, and reference specific information from 
                 "content": msg.content
             })
         
-        # Add current user message with images
-        user_content = f"Here are the PDF page images. Please answer this question: {request.message}"
+        # Add current user message with images - reinforce language requirement in user message
+        user_content = f"Here are the PDF page images. Please answer this question in {chat_lang} only: {request.message}"
         messages.append({
             "role": "user",
             "content": user_content
