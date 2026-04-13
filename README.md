@@ -18,7 +18,7 @@ TranslatorApp is a full-stack application for translating PDF documents while pr
 ## Repository structure
 
 ```text
-/home/runner/work/TranslatorApp/TranslatorApp
+TranslatorApp/
 ├── backend/                    # FastAPI service (PDF processing + APIs)
 │   ├── app/
 │   │   ├── main.py             # API endpoints and orchestration
@@ -72,14 +72,14 @@ TranslatorApp is a full-stack application for translating PDF documents while pr
 ## 1) Backend
 
 ```bash
-cd /home/runner/work/TranslatorApp/TranslatorApp/backend
+cd backend
 python -m venv .venv
 source .venv/bin/activate    # Linux/macOS
 # .venv\Scripts\Activate.ps1  # Windows PowerShell
 pip install -r requirements.txt
 ```
 
-Create `/home/runner/work/TranslatorApp/TranslatorApp/backend/.env`:
+Create `backend/.env`:
 
 ```env
 # Translation
@@ -100,7 +100,7 @@ DEFAULT_GEMINI_VISUAL_MODEL=gemini-2.5-flash-lite
 Run backend:
 
 ```bash
-cd /home/runner/work/TranslatorApp/TranslatorApp/backend
+cd backend
 source .venv/bin/activate
 uvicorn app.main:app --reload --port 8000
 ```
@@ -108,7 +108,7 @@ uvicorn app.main:app --reload --port 8000
 ## 2) Frontend
 
 ```bash
-cd /home/runner/work/TranslatorApp/TranslatorApp/frontend
+cd frontend
 npm install
 npm run dev
 ```
@@ -161,7 +161,7 @@ For implementation details, see [`ARCHITECTURE.md`](./ARCHITECTURE.md).
 Frontend:
 
 ```bash
-cd /home/runner/work/TranslatorApp/TranslatorApp/frontend
+cd frontend
 npm run dev
 npm run lint
 npm run build
@@ -170,7 +170,7 @@ npm run build
 Backend (run server):
 
 ```bash
-cd /home/runner/work/TranslatorApp/TranslatorApp/backend
+cd backend
 uvicorn app.main:app --reload --port 8000
 ```
 
