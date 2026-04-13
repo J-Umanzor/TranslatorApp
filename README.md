@@ -1,141 +1,191 @@
-# AI PDF Translator
+# TranslatorApp (AI PDF Translator)
 
-Translate PDF documents while preserving formatting. Supports both digital and scanned PDFs with two translation providers: Azure Translator (cloud) and LibreTranslate (self-hosted, free & unlimited). Includes an AI chatbot powered by Ollama for interactive document Q&A.
+TranslatorApp is a full-stack application for translating PDF documents while preserving layout and formatting, with an integrated AI chat assistant for question answering over document content.
+
+## What it does
+
+- Upload and analyze PDF documents (digital and scanned)
+- Detect source language from extracted text
+- Translate content to a selected target language
+- Generate a translated PDF when layout-preserving translation succeeds
+- Support two translation providers:
+  - **Azure Translator** (cloud)
+  - **LibreTranslate** (self-hosted/local)
+- Chat with document context using:
+  - **Ollama** (local models)
+  - **Google Gemini** (cloud models)
+
+## Repository structure
+
+```text
+/home/runner/work/TranslatorApp/TranslatorApp
+├── backend/                    # FastAPI service (PDF processing + APIs)
+│   ├── app/
+│   │   ├── main.py             # API endpoints and orchestration
+│   │   ├── models.py           # Request/response models
+│   │   ├── pdf_processor.py    # Layout-preserving PDF translator class
+│   │   ├── services/
+│   │   │   ├── extraction.py
+│   │   │   ├── translation_service.py
+│   │   │   ├── chat_service.py
+│   │   │   ├── pdf_context_service.py
+│   │   │   └── language_detection.py
+│   ├── fonts/                  # CJK font assets used for PDF text insertion
+│   └── requirements.txt
+├── frontend/                   # Next.js app (UI)
+│   ├── app/                    # Home, results, and chat routes
+│   ├── components/             # Shared UI components
+│   ├── lib/chat-api.ts         # Frontend API client
+│   └── package.json
+└── README.md
+```
+
+## Tech stack
+
+### Backend
+- FastAPI + Uvicorn
+- PyMuPDF (`fitz`) for PDF parsing/rendering/editing
+- Tesseract OCR via `pytesseract` + Pillow for scanned PDFs
+- Azure AI Translation SDK
+- Requests for LibreTranslate API calls
+- `langdetect` for language detection
+- Ollama + Google Generative AI SDK for chat
+
+### Frontend
+- Next.js 15 + React 18 + TypeScript
+- HeroUI components
+- Tailwind CSS
 
 ## Prerequisites
 
 - **Python 3.8+**
 - **Node.js 18+** and npm
-- **Tesseract OCR** (for scanned PDFs)
-  - Windows: Download from [UB-Mannheim/tesseract](https://github.com/UB-Mannheim/tesseract/wiki)
-  - macOS: `brew install tesseract`
-  - Linux: `sudo apt-get install tesseract-ocr`
-- **Ollama** (for chatbot feature - optional if using Gemini)
-  - Download from [ollama.ai](https://ollama.ai)
-  - Recommended model: `ollama pull llama3.1:8b`
-- **Google Gemini API Key** (optional, for cloud-based chatbot)
-  - Get from [Google AI Studio](https://makersuite.google.com/app/apikey)
-- **Docker** (optional, only for LibreTranslate)
+- **Tesseract OCR** installed and available in PATH
+- Optional services:
+  - Azure Translator credentials
+  - LibreTranslate server (Docker/local)
+  - Ollama runtime + local model(s)
+  - Gemini API key
 
-## Quick Start
+## Setup
 
-### 1. Backend Setup
+## 1) Backend
 
 ```bash
-cd backend
-
-# Create and activate virtual environment
+cd /home/runner/work/TranslatorApp/TranslatorApp/backend
 python -m venv .venv
-# macOS/Linux:
-source .venv/bin/activate
-# Windows:
-.venv\Scripts\Activate.ps1
-
-# Install dependencies
+source .venv/bin/activate    # Linux/macOS
+# .venv\Scripts\Activate.ps1  # Windows PowerShell
 pip install -r requirements.txt
-
-# Create .env file with your Azure Translator credentials
-# (Only needed if using Azure Translator)
 ```
 
-Create `backend/.env`:
+Create `/home/runner/work/TranslatorApp/TranslatorApp/backend/.env`:
+
 ```env
+# Translation
 AZURE_TRANSLATOR_KEY=your_key_here
 AZURE_TRANSLATOR_ENDPOINT=https://api.cognitive.microsofttranslator.com
 AZURE_TRANSLATOR_REGION=your_region_here
 LIBRETRANSLATE_URL=http://localhost:5000
+
+# Chat
 OLLAMA_BASE_URL=http://localhost:11434
 DEFAULT_LLM_MODEL=llama3.1:8b
-GEMINI_API_KEY=your_gemini_api_key_here  # Optional, only needed for Gemini provider
+DEFAULT_VISUAL_LLM_MODEL=llava
+GEMINI_API_KEY=your_gemini_api_key_here
+DEFAULT_GEMINI_MODEL=gemini-2.5-flash-lite
+DEFAULT_GEMINI_VISUAL_MODEL=gemini-2.5-flash-lite
 ```
 
-### 2. Frontend Setup
+Run backend:
 
 ```bash
-cd frontend
-npm install
-```
-
-### 3. Start LibreTranslate (Optional - for free unlimited translations)
-
-```bash
-docker run -ti --rm -p 5000:5000 libretranslate/libretranslate
-```
-
-### 4. Run the Application
-
-**Terminal 1 - Backend:**
-```bash
-cd backend
-source .venv/bin/activate  # or
-.venv\Scripts\Activate.ps1
+cd /home/runner/work/TranslatorApp/TranslatorApp/backend
+source .venv/bin/activate
 uvicorn app.main:app --reload --port 8000
 ```
 
-**Terminal 2 - Frontend:**
+## 2) Frontend
+
 ```bash
-cd frontend
+cd /home/runner/work/TranslatorApp/TranslatorApp/frontend
+npm install
 npm run dev
 ```
 
-**Terminal 3 - LibreTranslate (if using):**
+Open: `http://localhost:3000`
+
+## 3) Optional local services
+
+### LibreTranslate
+
 ```bash
 docker run -ti --rm -p 5000:5000 libretranslate/libretranslate
 ```
 
-**Terminal 4 - Ollama (for chatbot):**
+### Ollama
+
 ```bash
-# Make sure Ollama is running (usually runs as a service)
-# Download recommended model:
 ollama pull llama3.1:8b
+ollama pull llava
 ```
 
-Open `http://localhost:3000` in your browser.
+## Application flow
 
+1. User uploads a PDF on the home page.
+2. Frontend calls `POST /extract` for language/type detection and preview.
+3. User selects target language/provider and calls `POST /translate`.
+4. Backend translates and returns text + optional translated PDF (base64).
+5. Frontend stores text in `sessionStorage`, PDFs in `IndexedDB`, and navigates to `/results`.
+6. User can open chat, start a session (`/chat/start`), and send messages (`/chat/message`) with PDF context.
 
-## Getting Azure Translator Credentials
+## API summary
 
-1. Go to [Azure Portal](https://portal.azure.com/)
-2. Create a "Translator" resource
-3. Copy the API key, endpoint, and region to your `.env` file
+Backend base URL: `http://127.0.0.1:8000`
 
-**Note**: Azure credentials are only needed if using Azure Translator. LibreTranslate is free and unlimited when self-hosted.
+- `GET /health`
+- `GET /health/libretranslate`
+- `POST /upload` (file + target language, returns translated file response)
+- `POST /extract` (PDF metadata + text preview + detected language)
+- `POST /translate` (PDF + target language + provider)
+- `GET /chat/models?provider=ollama|gemini`
+- `POST /chat/start`
+- `POST /chat/message`
+- `GET /chat/session/{session_id}`
+- `DELETE /chat/session/{session_id}`
 
-## Chatbot Feature
+For implementation details, see [`ARCHITECTURE.md`](./ARCHITECTURE.md).
 
-The application includes an AI chatbot that supports two providers: **Ollama** (local, free) and **Google Gemini** (cloud, requires API key). The chatbot allows you to:
-- Ask questions about your PDF documents
-- Get summaries and extract information
-- Chat in the translated PDF's language
-- Use full PDF context (text + images)
+## Development commands
 
-### Option 1: Ollama (Local, Free)
+Frontend:
 
-**Setup:**
-1. Install [Ollama](https://ollama.ai)
-2. Pull the recommended model: `ollama pull llama3.1:8b`
-3. Ensure Ollama is running (usually runs as a background service)
-4. Set `provider=ollama` when starting a chat session
+```bash
+cd /home/runner/work/TranslatorApp/TranslatorApp/frontend
+npm run dev
+npm run lint
+npm run build
+```
 
-### Option 2: Google Gemini (Cloud)
+Backend (run server):
 
-**Setup:**
-1. Get a Gemini API key from [Google AI Studio](https://makersuite.google.com/app/apikey)
-2. Add to your `backend/.env` file:
-   ```env
-   GEMINI_API_KEY=your_gemini_api_key_here
-   ```
-3. Install the dependency: `pip install google-generativeai`
-4. Set `provider=gemini` when starting a chat session
+```bash
+cd /home/runner/work/TranslatorApp/TranslatorApp/backend
+uvicorn app.main:app --reload --port 8000
+```
 
-**Default Models:**
-- Ollama: `llama3.1:8b` (text) or `llava` (visual)
-- Gemini: `gemini-1.5-pro` (supports both text and visual)
+## Notes and limitations
 
-You can override these by setting environment variables:
-- `DEFAULT_LLM_MODEL` (Ollama text model)
-- `DEFAULT_VISUAL_LLM_MODEL` (Ollama visual model)
-- `DEFAULT_GEMINI_MODEL` (Gemini model)
-- `DEFAULT_GEMINI_VISUAL_MODEL` (Gemini visual model)
+- Max upload size is **50MB**.
+- Chat sessions are stored **in-memory** in backend process state (non-persistent).
+- Scanned PDFs use OCR and may have lower fidelity than digital PDFs.
+- CJK rendering depends on available fonts in `backend/fonts`.
+- Frontend uses Google fonts via `next/font/google`; restricted DNS/network to `fonts.googleapis.com` can break production builds.
 
-The chatbot automatically uses visual capabilities to analyze both text content and page images for comprehensive document understanding.
+## Troubleshooting
+
+- **OCR error / Tesseract not found**: install Tesseract and verify executable is in PATH.
+- **LibreTranslate unavailable**: start container or update `LIBRETRANSLATE_URL`.
+- **Ollama unavailable/model missing**: ensure Ollama service is running and required models are pulled.
+- **Gemini errors**: set valid `GEMINI_API_KEY` and ensure package is installed.
+- **ESLint module error (`@eslint/compat`)**: ensure dependency exists in frontend dev dependencies before running lint.
